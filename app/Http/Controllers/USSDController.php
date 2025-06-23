@@ -42,7 +42,7 @@ class USSDController extends Controller
         $validated = $request->validated();
         
         // Ensure the business belongs to the authenticated user
-        $business = auth()->user()->businesses()->findOrFail($validated['business_id']);
+        $business = auth()->user()->primaryBusiness;
         
         $ussd = USSD::create([
             'name' => $validated['name'],

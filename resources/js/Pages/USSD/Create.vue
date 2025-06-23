@@ -41,45 +41,75 @@
 
                     <!-- Form Content -->
                     <div class="p-6">
-                        <form @submit.prevent="submit" class="space-y-6">
+                        <Form @submit="submit" :validation-schema="schema" v-slot="{ errors, meta }" class="space-y-6">
                             <!-- USSD Name -->
                             <div>
                                 <InputLabel for="name" value="Service Name" class="text-sm font-medium text-gray-700" />
                                 <div class="mt-1 relative">
-                                    <TextInput
-                                        id="name"
-                                        type="text"
-                                        class="block w-full pl-4 pr-10 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-                                        v-model="form.name"
-                                        required
-                                        autofocus
-                                        placeholder="Enter service name (e.g., Banking Service, Payment Gateway)"
-                                    />
+                                    <Field
+                                        name="name"
+                                        v-slot="{ field, meta }"
+                                    >
+                                        <TextInput
+                                            id="name"
+                                            type="text"
+                                            :class="[
+                                                'block w-full pl-4 pr-10 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors',
+                                                meta.touched && meta.valid ? 'border-green-300 focus:border-green-500 focus:ring-green-500' : '',
+                                                meta.touched && !meta.valid ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                                            ]"
+                                            v-bind="field"
+                                            required
+                                            autofocus
+                                            placeholder="Enter service name (e.g., Banking Service, Payment Gateway)"
+                                        />
+                                    </Field>
                                     <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg v-if="meta.touched && meta.valid" class="h-5 w-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <svg v-else-if="meta.touched && !meta.valid" class="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        <svg v-else class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                                         </svg>
                                     </div>
                                 </div>
-                                <p class="mt-1 text-sm text-gray-500">Choose a descriptive name for your USSD service</p>
-                                <InputError class="mt-2" :message="form.errors.name" />
+                                <div class="mt-1 flex items-center justify-between">
+                                    <p class="text-sm text-gray-500">Choose a descriptive name for your USSD service</p>
+                                    <span class="text-xs text-gray-400">{{ form.name.length }}/100</span>
+                                </div>
+                                <ErrorMessage name="name" class="mt-2 text-sm text-red-600" />
                             </div>
 
                             <!-- USSD Description -->
                             <div>
                                 <InputLabel for="description" value="Description" class="text-sm font-medium text-gray-700" />
                                 <div class="mt-1">
-                                    <textarea
-                                        id="description"
-                                        class="block w-full px-4 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors resize-none"
-                                        v-model="form.description"
-                                        rows="4"
-                                        required
-                                        placeholder="Describe what this USSD service does, its features, and how users can benefit from it..."
-                                    ></textarea>
+                                    <Field
+                                        name="description"
+                                        v-slot="{ field, meta }"
+                                    >
+                                        <textarea
+                                            id="description"
+                                            :class="[
+                                                'block w-full px-4 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors resize-none',
+                                                meta.touched && meta.valid ? 'border-green-300 focus:border-green-500 focus:ring-green-500' : '',
+                                                meta.touched && !meta.valid ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                                            ]"
+                                            v-bind="field"
+                                            rows="4"
+                                            required
+                                            placeholder="Describe what this USSD service does, its features, and how users can benefit from it..."
+                                        ></textarea>
+                                    </Field>
                                 </div>
-                                <p class="mt-1 text-sm text-gray-500">Provide a clear description of your service functionality</p>
-                                <InputError class="mt-2" :message="form.errors.description" />
+                                <div class="mt-1 flex items-center justify-between">
+                                    <p class="text-sm text-gray-500">Provide a clear description of your service functionality</p>
+                                    <span class="text-xs text-gray-400">{{ form.description.length }}/500</span>
+                                </div>
+                                <ErrorMessage name="description" class="mt-2 text-sm text-red-600" />
                             </div>
 
                             <!-- USSD Pattern -->
@@ -90,15 +120,35 @@
                                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                             <span class="text-gray-500 text-lg font-bold">*</span>
                                         </div>
-                                        <TextInput
-                                            id="pattern"
-                                            type="text"
-                                            class="block w-full pl-8 pr-4 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-                                            v-model="form.pattern"
-                                            required
-                                            placeholder="e.g., 123# or 456*789#"
-                                        />
+                                        <Field
+                                            name="pattern"
+                                            v-slot="{ field, meta }"
+                                        >
+                                            <TextInput
+                                                id="pattern"
+                                                type="text"
+                                                :class="[
+                                                    'block w-full pl-8 pr-4 py-3 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors',
+                                                    meta.touched && meta.valid ? 'border-green-300 focus:border-green-500 focus:ring-green-500' : '',
+                                                    meta.touched && !meta.valid ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                                                ]"
+                                                v-bind="field"
+                                                required
+                                                placeholder="e.g., 123# or 456*789#"
+                                            />
+                                        </Field>
+                                        <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                            <svg v-if="meta.touched && meta.valid" class="h-5 w-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            <svg v-else-if="meta.touched && !meta.valid" class="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </div>
                                     </div>
+                                </div>
+                                <div class="mt-1 flex items-center justify-between">
+                                    <span class="text-xs text-gray-400">{{ form.pattern.length }}/20</span>
                                 </div>
                                 <div class="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
                                     <div class="flex">
@@ -120,7 +170,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <InputError class="mt-2" :message="form.errors.pattern" />
+                                <ErrorMessage name="pattern" class="mt-2 text-sm text-red-600" />
                             </div>
 
                             <!-- Submit Section -->
@@ -135,22 +185,67 @@
                                 </div>
                                 <div class="flex items-center space-x-3">
                                     <PrimaryButton
-                                        :class="{ 'opacity-50 cursor-not-allowed': form.processing }"
-                                        :disabled="form.processing"
-                                        class="inline-flex items-center px-6 py-3 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                                        :class="[
+                                            'inline-flex items-center px-6 py-3 text-sm font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors',
+                                            meta.valid && !form.processing 
+                                                ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500' 
+                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        ]"
+                                        :disabled="!meta.valid || form.processing"
+                                        type="submit"
                                     >
                                         <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
-                                        <svg v-else class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg v-else-if="meta.valid" class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                                         </svg>
-                                        {{ form.processing ? 'Creating...' : 'Create USSD Service' }}
+                                        <svg v-else class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                        </svg>
+                                        {{ form.processing ? 'Creating USSD Service...' : (meta.valid ? 'Create USSD Service' : 'Please fill all required fields') }}
                                     </PrimaryButton>
                                 </div>
                             </div>
-                        </form>
+
+                            <!-- Processing Overlay -->
+                            <div v-if="form.processing" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+                                <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+                                    <div class="flex items-center">
+                                        <svg class="animate-spin h-8 w-8 text-indigo-600 mr-4" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <div>
+                                            <h3 class="text-lg font-medium text-gray-900">Creating USSD Service</h3>
+                                            <p class="text-sm text-gray-500 mt-1">Please wait while we process your request...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Validation Summary -->
+                            <div v-if="meta.touched && !meta.valid" class="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="text-sm font-medium text-red-800">Please fix the following errors:</h4>
+                                        <div class="mt-2 text-sm text-red-700">
+                                            <ul class="list-disc list-inside space-y-1">
+                                                <li v-for="(error, field) in errors" :key="field">
+                                                    {{ error }}
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </Form>
                     </div>
                 </div>
 
@@ -182,6 +277,8 @@
 
 <script setup>
 import { useForm, Link } from '@inertiajs/vue3'
+import { Form, Field, ErrorMessage } from 'vee-validate'
+import * as yup from 'yup'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import InputError from '@/Components/InputError.vue'
 import InputLabel from '@/Components/InputLabel.vue'
@@ -194,7 +291,31 @@ const form = useForm({
     pattern: ''
 })
 
-const submit = () => {
+// Validation schema using Yup
+const schema = yup.object({
+    name: yup
+        .string()
+        .required('Service name is required')
+        .min(3, 'Service name must be at least 3 characters')
+        .max(100, 'Service name cannot exceed 100 characters')
+        .matches(/^[a-zA-Z0-9\s\-_]+$/, 'Service name can only contain letters, numbers, spaces, hyphens, and underscores'),
+    description: yup
+        .string()
+        .required('Description is required')
+        .min(10, 'Description must be at least 10 characters')
+        .max(500, 'Description cannot exceed 500 characters'),
+    pattern: yup
+        .string()
+        .required('USSD pattern is required')
+        .min(3, 'USSD pattern must be at least 3 characters')
+        .max(20, 'USSD pattern cannot exceed 20 characters')
+        .matches(/^[\d*#]+$/, 'USSD pattern can only contain numbers, asterisks (*), and hash (#)')
+})
+
+const submit = (values) => {
+    form.name = values.name
+    form.description = values.description
+    form.pattern = values.pattern
     form.post(route('ussd.store'))
 }
 </script> 

@@ -24,8 +24,7 @@ class StoreUSSDRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'description' => 'required|string|max:1000',
-            'pattern' => 'required|string|max:50|unique:ussds,pattern',
-            'business_id' => 'required|exists:businesses,id',
+            'pattern' => 'required|string|max:50|unique:ussds,pattern'
         ];
     }
 
