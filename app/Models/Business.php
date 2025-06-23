@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Business extends Model
 {
@@ -31,6 +33,8 @@ class Business extends Model
         'director_id_number',
         'director_id_path',
         'registration_status',
+        'verified',
+        'verified_at',
         'is_primary',
     ];
 
@@ -39,15 +43,25 @@ class Business extends Model
      */
     protected $casts = [
         'registration_date' => 'date',
+        'verified_at' => 'datetime',
+        'verified' => 'boolean',
         'is_primary' => 'boolean',
     ];
 
     /**
      * Get the user that owns this business.
      */
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the USSDs owned by this business.
+     */
+    public function ussds(): HasMany
+    {
+        return $this->hasMany(USSD::class);
     }
 
     /**
@@ -64,5 +78,51 @@ class Business extends Model
     public function isPrimary()
     {
         return $this->is_primary;
+    }
+
+    /**
+     * Check if the business is verified.
+     */
+    public function isVerified()
+    {
+        return $this->verified;
+    }
+
+    /**
+     * Mark the business as verified.
+     */
+    public function markAsVerified()
+    {
+        $this->update([
+            'verified' => true,
+            'verified_at' => now(),
+        ]);
+    }
+
+    /**
+     * Mark the business as unverified.
+     */
+    public function markAsUnverified()
+    {
+        $this->update([
+            'verified' => false,
+            'verified_at' => null,
+        ]);
+    }
+
+    /**
+     * Scope to get verified businesses.
+     */
+    public function scopeVerified($query)
+    {
+        return $query->where('verified', true);
+    }
+
+    /**
+     * Scope to get unverified businesses.
+     */
+    public function scopeUnverified($query)
+    {
+        return $query->where('verified', false);
     }
 }

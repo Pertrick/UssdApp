@@ -36,23 +36,23 @@ Route::middleware('auth')->group(function () {
 });
 
 // Business Registration Routes (No middleware - accessible to everyone)
-    Route::get('/business/register', [BusinessController::class, 'register'])->name('business.register');
-    Route::post('/business/register', [BusinessController::class, 'store'])->name('business.store');
+Route::get('/business/register', [BusinessController::class, 'register'])->name('business.register');
+Route::post('/business/register', [BusinessController::class, 'store'])->name('business.store');
 
 // Business Setup Routes (No auth middleware - allows smooth registration flow)
-        // CAC Information
-        Route::get('/business/cac-info', [BusinessController::class, 'cacInfo'])
-            ->name('business.cac-info');
-        
-        Route::post('/business/cac-info', [BusinessController::class, 'storeCacInfo'])
-            ->name('business.store-cac-info');
+// CAC Information
+Route::get('/business/cac-info', [BusinessController::class, 'cacInfo'])
+    ->name('business.cac-info');
 
-        // Director Information
-        Route::get('/business/director-info', [BusinessController::class, 'directorInfo'])
-            ->name('business.director-info');
-        
-        Route::post('/business/director-info', [BusinessController::class, 'storeDirectorInfo'])
-            ->name('business.store-director-info');
+Route::post('/business/cac-info', [BusinessController::class, 'storeCacInfo'])
+    ->name('business.store-cac-info');
+
+// Director Information
+Route::get('/business/director-info', [BusinessController::class, 'directorInfo'])
+    ->name('business.director-info');
+
+Route::post('/business/director-info', [BusinessController::class, 'storeDirectorInfo'])
+    ->name('business.store-director-info');
 
 // Email Verification (Optional - Last Step)
 Route::get('/business/verify-email', [BusinessController::class, 'verifyEmail'])
@@ -64,12 +64,26 @@ Route::post('/business/verify-email', [BusinessController::class, 'sendVerificat
 Route::post('/business/skip-email-verification', [BusinessController::class, 'skipEmailVerification'])
     ->name('business.skip-email-verification');
 
-// USSD Routes (Requires auth - these are for authenticated users)
+// Business Verification Routes (Admin only)
 Route::middleware(['auth'])->group(function () {
-    Route::get('/ussd/create', [USSDController::class, 'create'])->name('ussd.create');
-    Route::post('/ussd/create', [USSDController::class, 'store']);
-    Route::get('/ussd/configure', [USSDController::class, 'configure'])->name('ussd.configure');
-    Route::get('/ussd/simulator', [USSDController::class, 'simulator'])->name('ussd.simulator');
+    Route::patch('/business/{business}/verify', [BusinessController::class, 'verifyBusiness'])
+        ->name('business.verify');
+    Route::patch('/business/{business}/unverify', [BusinessController::class, 'unverifyBusiness'])
+        ->name('business.unverify');
 });
 
-require __DIR__.'/auth.php';
+// USSD Routes (Requires auth - these are for authenticated users)
+Route::middleware(['auth'])->group(function () {
+    Route::get('/ussd', [USSDController::class, 'index'])->name('ussd.index');
+    Route::get('/ussd/create', [USSDController::class, 'create'])->name('ussd.create');
+    Route::post('/ussd', [USSDController::class, 'store'])->name('ussd.store');
+    Route::get('/ussd/{ussd}', [USSDController::class, 'show'])->name('ussd.show');
+    Route::get('/ussd/{ussd}/edit', [USSDController::class, 'edit'])->name('ussd.edit');
+    Route::put('/ussd/{ussd}', [USSDController::class, 'update'])->name('ussd.update');
+    Route::delete('/ussd/{ussd}', [USSDController::class, 'destroy'])->name('ussd.destroy');
+    Route::patch('/ussd/{ussd}/toggle-status', [USSDController::class, 'toggleStatus'])->name('ussd.toggle-status');
+    Route::get('/ussd/{ussd}/configure', [USSDController::class, 'configure'])->name('ussd.configure');
+    Route::get('/ussd/{ussd}/simulator', [USSDController::class, 'simulator'])->name('ussd.simulator');
+});
+
+require __DIR__ . '/auth.php';

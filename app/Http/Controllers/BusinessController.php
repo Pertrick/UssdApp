@@ -224,17 +224,49 @@ class BusinessController extends Controller
     {
         $user = Auth::user();
         $business = $user->primaryBusiness();
-        
-        if ($business) {
-            $business->update([
-                'registration_status' => 'completed'
-            ]);
+
+        if (!$business) {
+            return back()->withErrors(['error' => 'Business not found.']);
         }
-        
-        $user->update([
-            'email_verified_at' => now()
+
+        // Update registration status to completed but unverified
+        $business->update([
+            'registration_status' => 'completed_unverified'
         ]);
 
-        return redirect()->route('dashboard');
+        return redirect()->route('dashboard')
+            ->with('success', 'Registration completed successfully! Your business will be verified shortly.');
+    }
+
+    /**
+     * Verify a business (Admin function)
+     */
+    public function verifyBusiness(Business $business)
+    {
+        // Check if user has permission to verify businesses
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $business->markAsVerified();
+        $business->update(['registration_status' => 'verified']);
+
+        return back()->with('success', 'Business verified successfully!');
+    }
+
+    /**
+     * Unverify a business (Admin function)
+     */
+    public function unverifyBusiness(Business $business)
+    {
+        // Check if user has permission to verify businesses
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $business->markAsUnverified();
+        $business->update(['registration_status' => 'completed_unverified']);
+
+        return back()->with('success', 'Business verification removed successfully!');
     }
 }

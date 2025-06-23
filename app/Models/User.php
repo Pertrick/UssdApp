@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
@@ -42,12 +43,13 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'is_primary' => 'boolean',
     ];
 
     /**
      * Get the businesses owned by this user.
      */
-    public function businesses()
+    public function businesses(): HasMany
     {
         return $this->hasMany(Business::class);
     }
@@ -58,5 +60,13 @@ class User extends Authenticatable
     public function primaryBusiness()
     {
         return $this->hasOne(Business::class)->where('is_primary', true);
+    }
+
+    /**
+     * Get the USSDs owned by this user.
+     */
+    public function ussds(): HasMany
+    {
+        return $this->hasMany(USSD::class);
     }
 }

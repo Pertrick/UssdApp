@@ -3,195 +3,273 @@ import { ref } from 'vue';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
-import NavLink from '@/Components/NavLink.vue';
-import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
 import { Link } from '@inertiajs/vue3';
 
-const showingNavigationDropdown = ref(false);
+const sidebarOpen = ref(false);
 </script>
 
 <template>
-    <div>
-        <div class="min-h-screen bg-gray-100">
-            <nav
-                class="border-b border-gray-100 bg-white"
-            >
-                <!-- Primary Navigation Menu -->
-                <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                    <div class="flex h-16 justify-between">
-                        <div class="flex">
-                            <!-- Logo -->
-                            <div class="flex shrink-0 items-center">
-                                <Link :href="route('dashboard')">
-                                    <ApplicationLogo
-                                        class="block h-9 w-auto fill-current text-gray-800"
-                                    />
+    <div class="min-h-screen bg-gray-50">
+        <!-- Sidebar for desktop -->
+        <div class="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
+            <!-- Sidebar component -->
+            <div class="flex grow flex-col gap-y-5 overflow-y-auto bg-gray-900 px-6 pb-4">
+                <!-- Logo -->
+                <div class="flex h-16 shrink-0 items-center">
+                    <Link :href="route('dashboard')" class="flex items-center">
+                        <ApplicationLogo class="h-8 w-auto text-white" />
+                        <span class="ml-2 text-xl font-bold text-white">USSD App</span>
+                    </Link>
+                </div>
+
+                <!-- Navigation -->
+                <nav class="flex flex-1 flex-col">
+                    <ul role="list" class="flex flex-1 flex-col gap-y-7">
+                        <li>
+                            <ul role="list" class="-mx-2 space-y-1">
+                                <li>
+                                    <Link
+                                        :href="route('dashboard')"
+                                        :class="[
+                                            route().current('dashboard')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                                        </svg>
+                                        Dashboard
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        :href="route('ussd.index')"
+                                        :class="[
+                                            route().current('ussd.*')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        USSD Services
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        :href="route('ussd.create')"
+                                        :class="[
+                                            route().current('ussd.create')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        </svg>
+                                        Create USSD
+                                    </Link>
+                                </li>
+                            </ul>
+                        </li>
+                        <li class="mt-auto">
+                            <div class="bg-gray-800 rounded-lg p-3">
+                                <div class="flex items-center gap-x-3">
+                                    <div class="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center">
+                                        <span class="text-sm font-medium text-white">
+                                            {{ $page.props.auth.user.name.charAt(0).toUpperCase() }}
+                                        </span>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-sm font-medium text-white truncate">
+                                            {{ $page.props.auth.user.name }}
+                                        </p>
+                                        <p class="text-xs text-gray-400 truncate">
+                                            {{ $page.props.auth.user.email }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Mobile menu -->
+        <div class="lg:hidden">
+            <div class="fixed inset-0 z-50" v-if="sidebarOpen">
+                <div class="fixed inset-0 bg-gray-900/80" @click="sidebarOpen = false"></div>
+                <div class="fixed inset-y-0 left-0 z-50 w-full overflow-y-auto bg-gray-900 px-6 py-6 sm:max-w-sm">
+                    <div class="flex items-center justify-between">
+                        <Link :href="route('dashboard')" class="flex items-center">
+                            <ApplicationLogo class="h-8 w-auto text-white" />
+                            <span class="ml-2 text-xl font-bold text-white">USSD App</span>
+                        </Link>
+                        <button
+                            type="button"
+                            class="-m-2.5 rounded-md p-2.5 text-gray-400"
+                            @click="sidebarOpen = false"
+                        >
+                            <span class="sr-only">Close sidebar</span>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="mt-6 flow-root">
+                        <div class="-my-2 divide-y divide-gray-700">
+                            <div class="space-y-2 py-6">
+                                <Link
+                                    :href="route('dashboard')"
+                                    :class="[
+                                        route().current('dashboard')
+                                            ? 'bg-gray-800 text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                        'group flex gap-x-3 rounded-md px-3 py-2 text-base font-medium transition-colors'
+                                    ]"
+                                    @click="sidebarOpen = false"
+                                >
+                                    <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                                    </svg>
+                                    Dashboard
+                                </Link>
+                                <Link
+                                    :href="route('ussd.index')"
+                                    :class="[
+                                        route().current('ussd.*')
+                                            ? 'bg-gray-800 text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                        'group flex gap-x-3 rounded-md px-3 py-2 text-base font-medium transition-colors'
+                                    ]"
+                                    @click="sidebarOpen = false"
+                                >
+                                    <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    USSD Services
+                                </Link>
+                                <Link
+                                    :href="route('ussd.create')"
+                                    :class="[
+                                        route().current('ussd.create')
+                                            ? 'bg-gray-800 text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                        'group flex gap-x-3 rounded-md px-3 py-2 text-base font-medium transition-colors'
+                                    ]"
+                                    @click="sidebarOpen = false"
+                                >
+                                    <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    Create USSD
                                 </Link>
                             </div>
-
-                            <!-- Navigation Links -->
-                            <div
-                                class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex"
-                            >
-                                <NavLink
-                                    :href="route('dashboard')"
-                                    :active="route().current('dashboard')"
-                                >
-                                    Dashboard
-                                </NavLink>
-                            </div>
-                        </div>
-
-                        <div class="hidden sm:ms-6 sm:flex sm:items-center">
-                            <!-- Settings Dropdown -->
-                            <div class="relative ms-3">
-                                <Dropdown align="right" width="48">
-                                    <template #trigger>
-                                        <span class="inline-flex rounded-md">
-                                            <button
-                                                type="button"
-                                                class="inline-flex items-center rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none"
-                                            >
-                                                {{ $page.props.auth.user.name }}
-
-                                                <svg
-                                                    class="-me-0.5 ms-2 h-4 w-4"
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    viewBox="0 0 20 20"
-                                                    fill="currentColor"
-                                                >
-                                                    <path
-                                                        fill-rule="evenodd"
-                                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                                                        clip-rule="evenodd"
-                                                    />
-                                                </svg>
-                                            </button>
+                            <div class="py-6">
+                                <div class="flex items-center gap-x-3">
+                                    <div class="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center">
+                                        <span class="text-sm font-medium text-white">
+                                            {{ $page.props.auth.user.name.charAt(0).toUpperCase() }}
                                         </span>
-                                    </template>
-
-                                    <template #content>
-                                        <DropdownLink
-                                            :href="route('profile.edit')"
-                                        >
-                                            Profile
-                                        </DropdownLink>
-                                        <DropdownLink
-                                            :href="route('logout')"
-                                            method="post"
-                                            as="button"
-                                        >
-                                            Log Out
-                                        </DropdownLink>
-                                    </template>
-                                </Dropdown>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-sm font-medium text-white truncate">
+                                            {{ $page.props.auth.user.name }}
+                                        </p>
+                                        <p class="text-xs text-gray-400 truncate">
+                                            {{ $page.props.auth.user.email }}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 space-y-1">
+                                    <Link
+                                        :href="route('profile.edit')"
+                                        class="block rounded-md px-3 py-2 text-base font-medium text-gray-400 hover:bg-gray-800 hover:text-white"
+                                        @click="sidebarOpen = false"
+                                    >
+                                        Profile
+                                    </Link>
+                                    <Link
+                                        :href="route('logout')"
+                                        method="post"
+                                        as="button"
+                                        class="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-400 hover:bg-gray-800 hover:text-white"
+                                        @click="sidebarOpen = false"
+                                    >
+                                        Log Out
+                                    </Link>
+                                </div>
                             </div>
-                        </div>
-
-                        <!-- Hamburger -->
-                        <div class="-me-2 flex items-center sm:hidden">
-                            <button
-                                @click="
-                                    showingNavigationDropdown =
-                                        !showingNavigationDropdown
-                                "
-                                class="inline-flex items-center justify-center rounded-md p-2 text-gray-400 transition duration-150 ease-in-out hover:bg-gray-100 hover:text-gray-500 focus:bg-gray-100 focus:text-gray-500 focus:outline-none"
-                            >
-                                <svg
-                                    class="h-6 w-6"
-                                    stroke="currentColor"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        :class="{
-                                            hidden: showingNavigationDropdown,
-                                            'inline-flex':
-                                                !showingNavigationDropdown,
-                                        }"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M4 6h16M4 12h16M4 18h16"
-                                    />
-                                    <path
-                                        :class="{
-                                            hidden: !showingNavigationDropdown,
-                                            'inline-flex':
-                                                showingNavigationDropdown,
-                                        }"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <!-- Responsive Navigation Menu -->
-                <div
-                    :class="{
-                        block: showingNavigationDropdown,
-                        hidden: !showingNavigationDropdown,
-                    }"
-                    class="sm:hidden"
-                >
-                    <div class="space-y-1 pb-3 pt-2">
-                        <ResponsiveNavLink
-                            :href="route('dashboard')"
-                            :active="route().current('dashboard')"
-                        >
-                            Dashboard
-                        </ResponsiveNavLink>
-                    </div>
-
-                    <!-- Responsive Settings Options -->
-                    <div
-                        class="border-t border-gray-200 pb-1 pt-4"
-                    >
-                        <div class="px-4">
-                            <div
-                                class="text-base font-medium text-gray-800"
-                            >
-                                {{ $page.props.auth.user.name }}
-                            </div>
-                            <div class="text-sm font-medium text-gray-500">
-                                {{ $page.props.auth.user.email }}
-                            </div>
-                        </div>
-
-                        <div class="mt-3 space-y-1">
-                            <ResponsiveNavLink :href="route('profile.edit')">
-                                Profile
-                            </ResponsiveNavLink>
-                            <ResponsiveNavLink
-                                :href="route('logout')"
-                                method="post"
-                                as="button"
-                            >
-                                Log Out
-                            </ResponsiveNavLink>
-                        </div>
-                    </div>
-                </div>
-            </nav>
-
-            <!-- Page Heading -->
-            <header
-                class="bg-white shadow"
-                v-if="$slots.header"
+        <!-- Top bar for mobile -->
+        <div class="sticky top-0 z-40 flex items-center gap-x-6 bg-white px-4 py-4 shadow-sm sm:px-6 lg:hidden">
+            <button
+                type="button"
+                class="-m-2.5 p-2.5 text-gray-700 lg:hidden"
+                @click="sidebarOpen = true"
             >
-                <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+                <span class="sr-only">Open sidebar</span>
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                </svg>
+            </button>
+            <div class="flex-1 text-sm font-semibold leading-6 text-gray-900">Dashboard</div>
+            <Dropdown align="right" width="48">
+                <template #trigger>
+                    <button class="flex items-center gap-x-4 text-sm font-medium leading-6 text-gray-900">
+                        <span class="sr-only">Open user menu</span>
+                        <div class="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center">
+                            <span class="text-sm font-medium text-white">
+                                {{ $page.props.auth.user.name.charAt(0).toUpperCase() }}
+                            </span>
+                        </div>
+                        <span class="hidden lg:flex lg:items-center">
+                            <span class="sr-only">Your profile</span>
+                            <span aria-hidden="true">{{ $page.props.auth.user.name }}</span>
+                        </span>
+                    </button>
+                </template>
+
+                <template #content>
+                    <DropdownLink :href="route('profile.edit')">
+                        Profile
+                    </DropdownLink>
+                    <DropdownLink
+                        :href="route('logout')"
+                        method="post"
+                        as="button"
+                    >
+                        Log Out
+                    </DropdownLink>
+                </template>
+            </Dropdown>
+        </div>
+
+        <!-- Main content -->
+        <div class="lg:pl-72">
+            <!-- Page Heading -->
+            <header class="bg-white shadow-sm border-b border-gray-200" v-if="$slots.header">
+                <div class="px-4 py-6 sm:px-6 lg:px-8">
                     <slot name="header" />
                 </div>
             </header>
 
             <!-- Page Content -->
-            <main>
-                <slot />
+            <main class="py-6">
+                <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                    <slot />
+                </div>
             </main>
         </div>
     </div>

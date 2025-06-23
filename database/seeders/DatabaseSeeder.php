@@ -19,5 +19,8 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Run USSD seeder if you want sample USSD data
+        // $this->call(USSDSeeder::class);
     }
 }

@@ -15,11 +15,23 @@ class Controller extends BaseController
     public function dashboard()
     {
         $user = Auth::user();
-        $business = $user ? $user->primaryBusiness() : null;
+        $business = $user ? $user->primaryBusiness : null;
+        
+        // Get USSD statistics for the user
+        $ussdStats = null;
+        if ($user) {
+            $ussds = $user->ussds();
+            $ussdStats = [
+                'total' => $ussds->count(),
+                'active' => $ussds->where('is_active', true)->count(),
+                'inactive' => $ussds->where('is_active', false)->count(),
+            ];
+        }
 
         return Inertia::render('Dashboard', [
             'user' => $user,
             'business' => $business,
+            'ussdStats' => $ussdStats,
         ]);
     }
 }
