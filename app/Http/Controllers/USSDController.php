@@ -6,10 +6,13 @@ use App\Models\USSD;
 use App\Models\Business;
 use App\Http\Requests\USSD\StoreUSSDRequest;
 use App\Http\Requests\USSD\UpdateUSSDRequest;
+use App\Services\ActivityService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\USSDFlow;
 use App\Models\USSDFlowOption;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class USSDController extends Controller
 {
@@ -18,7 +21,7 @@ class USSDController extends Controller
      */
     public function index()
     {
-        $ussds = auth()->user()->ussds()->with('business')->latest()->get();
+        $ussds = Auth::user()->ussds()->with('business')->latest()->get();
         
         return Inertia::render('USSD/Index', [
             'ussds' => $ussds
@@ -30,7 +33,7 @@ class USSDController extends Controller
      */
     public function create()
     {
-        $businesses = auth()->user()->businesses()->get();
+        $businesses = Auth::user()->businesses()->get();
         
         return Inertia::render('USSD/Create', [
             'businesses' => $businesses
@@ -45,16 +48,19 @@ class USSDController extends Controller
         $validated = $request->validated();
         
         // Ensure the business belongs to the authenticated user
-        $business = auth()->user()->primaryBusiness;
+        $business = Auth::user()->primaryBusiness;
         
         $ussd = USSD::create([
             'name' => $validated['name'],
             'description' => $validated['description'],
             'pattern' => $validated['pattern'],
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
             'business_id' => $business->id,
             'is_active' => true,
         ]);
+
+        // Log the activity
+        ActivityService::logUSSDCreated(Auth::id(), $ussd->id, $ussd->name);
 
         return redirect()->route('ussd.index')
             ->with('success', 'USSD created successfully!');
@@ -66,7 +72,7 @@ class USSDController extends Controller
     public function show(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -81,11 +87,11 @@ class USSDController extends Controller
     public function edit(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
-        $businesses = auth()->user()->businesses()->get();
+        $businesses = Auth::user()->businesses()->get();
         
         return Inertia::render('USSD/Edit', [
             'ussd' => $ussd->load('business'),
@@ -99,7 +105,7 @@ class USSDController extends Controller
     public function update(UpdateUSSDRequest $request, USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -112,6 +118,9 @@ class USSDController extends Controller
             'business_id' => $validated['business_id'],
         ]);
 
+        // Log the activity
+        ActivityService::logUSSDUpdated(Auth::id(), $ussd->id, $ussd->name);
+
         return redirect()->route('ussd.index')
             ->with('success', 'USSD updated successfully!');
     }
@@ -122,11 +131,15 @@ class USSDController extends Controller
     public function destroy(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
+        $ussdName = $ussd->name;
         $ussd->delete();
+
+        // Log the activity
+        ActivityService::logUSSDDeleted(Auth::id(), $ussdName);
 
         return redirect()->route('ussd.index')
             ->with('success', 'USSD deleted successfully!');
@@ -138,7 +151,7 @@ class USSDController extends Controller
     public function toggleStatus(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -154,7 +167,7 @@ class USSDController extends Controller
     public function configure(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -171,7 +184,7 @@ class USSDController extends Controller
     public function simulator(USSD $ussd)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -188,15 +201,15 @@ class USSDController extends Controller
         // Debug logging
         \Log::info('storeFlow method called', [
             'ussd_id' => $ussd->id,
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
             'request_data' => $request->all()
         ]);
 
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             \Log::warning('Unauthorized access attempt', [
                 'ussd_user_id' => $ussd->user_id,
-                'auth_user_id' => auth()->id()
+                'auth_user_id' => Auth::id()
             ]);
             return response()->json([
                 'success' => false,
@@ -274,7 +287,7 @@ class USSDController extends Controller
     public function updateFlow(Request $request, USSD $ussd, USSDFlow $flow)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -376,7 +389,7 @@ class USSDController extends Controller
     public function destroyFlow(USSD $ussd, USSDFlow $flow)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -407,7 +420,7 @@ class USSDController extends Controller
     public function storeFlowOption(Request $request, USSD $ussd, USSDFlow $flow)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -481,7 +494,7 @@ class USSDController extends Controller
     public function updateFlowOption(Request $request, USSD $ussd, USSDFlow $flow, USSDFlowOption $option)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 
@@ -557,7 +570,7 @@ class USSDController extends Controller
     public function destroyFlowOption(USSD $ussd, USSDFlow $flow, USSDFlowOption $option)
     {
         // Ensure the USSD belongs to the authenticated user
-        if ($ussd->user_id !== auth()->id()) {
+        if ($ussd->user_id !== Auth::id()) {
             abort(403);
         }
 

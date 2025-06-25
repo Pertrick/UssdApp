@@ -306,12 +306,14 @@ class USSDSessionService
             return 0;
         }
 
+
         $totalDuration = $sessions->sum(function ($session) {
+
             if (!$session->created_at || !$session->last_activity) {
                 return 0;
             }
             
-            $duration = $session->last_activity->diffInSeconds($session->created_at);
+            $duration = $session->last_activity->diffInSeconds($session->created_at, true);
             
             return max(0, $duration);
         });

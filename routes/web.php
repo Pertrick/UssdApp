@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use App\Http\Controllers\BusinessController;
 use App\Http\Controllers\USSDController;
 use App\Http\Controllers\USSDSimulatorController;
+use App\Http\Controllers\ActivityController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\AnalyticsController;
 
@@ -140,6 +141,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/analytics/ussd/{ussd}', [AnalyticsController::class, 'ussdAnalytics'])->name('analytics.ussd');
     Route::get('/analytics/export', [AnalyticsController::class, 'export'])->name('analytics.export');
     Route::get('/analytics/export/{ussd}', [AnalyticsController::class, 'export'])->name('analytics.export.ussd');
+    
+    // Activity Routes
+    Route::get('/activities', [ActivityController::class, 'index'])->name('activities.index');
+    Route::get('/activities/recent', [ActivityController::class, 'getRecentActivities'])->name('activities.recent');
 });
 
 // Test route for CSRF token
@@ -151,5 +156,11 @@ Route::get('/test-csrf', function () {
         'user_id' => auth()->id(),
     ]);
 })->middleware(['auth'])->name('test.csrf');
+
+// Test route for flash messages
+Route::get('/test-flash', function () {
+    session()->flash('success', 'This is a test flash message!');
+    return Inertia::render('Dashboard');
+})->middleware(['auth'])->name('test.flash');
 
 require __DIR__ . '/auth.php';

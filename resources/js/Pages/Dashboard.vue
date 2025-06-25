@@ -1,11 +1,13 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 
 defineProps({
     user: Object,
     business: Object,
     ussdStats: Object,
+    recentActivities: Array,
+
 });
 
 const formatDate = (date) => {
@@ -15,6 +17,11 @@ const formatDate = (date) => {
         month: 'long',
         day: 'numeric'
     });
+};
+
+// Logout method
+const logout = () => {
+    router.post(route('logout'));
 };
 </script>
 
@@ -28,8 +35,19 @@ const formatDate = (date) => {
                     <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
                     <p class="text-sm text-gray-600 mt-1">Welcome back, {{ user?.name }}!</p>
                 </div>
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-4">
                     <span class="text-sm text-gray-500">{{ formatDate(new Date()) }}</span>
+                    <form @submit.prevent="logout" class="inline">
+                        <button
+                            type="submit"
+                            class="inline-flex items-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+                        >
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            Logout
+                        </button>
+                    </form>
                 </div>
             </div>
         </template>
@@ -277,23 +295,41 @@ const formatDate = (date) => {
                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="text-lg font-semibold text-gray-900">Recent Activity</h3>
-                        <button class="text-sm text-blue-600 hover:text-blue-700 font-medium">View All</button>
+                        <Link :href="route('activities.index')" class="text-sm text-blue-600 hover:text-blue-700 font-medium">View All</Link>
                     </div>
                     
-                    <div class="space-y-4">
-                        <div class="flex items-center p-4 bg-gray-50 rounded-lg">
+                    <div v-if="!recentActivities || recentActivities.length === 0" class="text-center py-8">
+                        <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">No recent activity</h4>
+                        <p class="text-sm text-gray-500">Start using the system to see your activity log here.</p>
+                    </div>
+                    
+                    <div v-else class="space-y-4">
+                        <div 
+                            v-for="activity in recentActivities" 
+                            :key="activity.id"
+                            class="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                        >
                             <div class="flex-shrink-0">
-                                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center" :class="activity.color">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="activity.icon" />
                                     </svg>
                                 </div>
                             </div>
                             <div class="ml-4 flex-1">
-                                <p class="text-sm text-gray-900">Welcome to your dashboard!</p>
-                                <p class="text-xs text-gray-500">Get started by creating your first USSD service</p>
+                                <p class="text-sm font-medium text-gray-900">{{ activity.description }}</p>
+                                <div class="flex items-center space-x-2 mt-1">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        {{ activity.activity_type.replace('_', ' ').toUpperCase() }}
+                                    </span>
+                                </div>
                             </div>
-                            <span class="text-xs text-gray-400">Just now</span>
+                            <span class="text-xs text-gray-400">{{ activity.time_ago }}</span>
                         </div>
                     </div>
                 </div>

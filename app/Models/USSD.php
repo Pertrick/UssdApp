@@ -19,12 +19,29 @@ class USSD extends Model
         'user_id',
         'business_id',
         'is_active',
+        'environment', // 'testing' or 'live'
+        'gateway_provider', // 'africastalking', 'hubtel', 'twilio', etc.
+        'gateway_credentials', // JSON encrypted credentials
+        'monetization_enabled',
+        'pricing_model', // 'per_session', 'per_transaction', 'subscription'
+        'session_price', // Price per session in kobo
+        'transaction_price', // Price per transaction in kobo
+        'subscription_price', // Monthly subscription price
+        'webhook_url',
+        'callback_url',
+        'live_ussd_code', // The actual USSD code for live environment
+        'testing_ussd_code', // USSD code for testing
         'created_at',
         'updated_at'
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'monetization_enabled' => 'boolean',
+        'gateway_credentials' => 'encrypted:array',
+        'session_price' => 'decimal:2',
+        'transaction_price' => 'decimal:2',
+        'subscription_price' => 'decimal:2',
     ];
 
     /**
@@ -86,6 +103,42 @@ class USSD extends Model
             'pattern.required' => 'USSD pattern is required.',
             'pattern.max' => 'USSD pattern cannot exceed 50 characters.',
             'pattern.unique' => 'This USSD pattern is already in use.',
+        ];
+    }
+
+    // Helper methods for environment management
+    public function isLive(): bool
+    {
+        return $this->environment === 'live';
+    }
+
+    public function isTesting(): bool
+    {
+        return $this->environment === 'testing';
+    }
+
+    public function getCurrentUssdCode(): string
+    {
+        return $this->isLive() ? $this->live_ussd_code : $this->testing_ussd_code;
+    }
+
+    public function canSwitchToLive(): bool
+    {
+        return $this->business && 
+               $this->business->registration_status === 'verified' &&
+               $this->gateway_provider &&
+               $this->gateway_credentials &&
+               $this->webhook_url;
+    }
+
+    public function getPricingInfo(): array
+    {
+        return [
+            'model' => $this->pricing_model,
+            'session_price' => $this->session_price,
+            'transaction_price' => $this->transaction_price,
+            'subscription_price' => $this->subscription_price,
+            'enabled' => $this->monetization_enabled,
         ];
     }
 } 

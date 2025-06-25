@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { ref, onMounted, watch } from 'vue';
+import { usePage, router } from '@inertiajs/vue3';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
@@ -10,10 +10,25 @@ import { handleFlashMessages } from '@/helpers/toast';
 const sidebarOpen = ref(false);
 const page = usePage();
 
-// Handle flash messages when component mounts
+// Handle flash messages when component mounts and when page props change
 onMounted(() => {
-    handleFlashMessages(page.props);
+    // Only handle flash messages if page props are available
+    if (page.props) {
+        handleFlashMessages(page.props);
+    }
 });
+
+// Watch for changes in page props to handle flash messages after navigation
+watch(() => page.props, (newProps) => {
+    if (newProps) {
+        handleFlashMessages(newProps);
+    }
+}, { deep: true, immediate: true });
+
+// Logout method
+const logout = () => {
+    router.post(route('logout'));
+};
 </script>
 
 <template>
@@ -88,7 +103,7 @@ onMounted(() => {
                         </li>
                         <li class="mt-auto">
                             <div class="bg-gray-800 rounded-lg p-3">
-                                <div class="flex items-center gap-x-3">
+                                <div class="flex items-center gap-x-3 mb-3">
                                     <div class="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center">
                                         <span class="text-sm font-medium text-white">
                                             {{ $page.props.auth.user.name.charAt(0).toUpperCase() }}
@@ -102,6 +117,27 @@ onMounted(() => {
                                             {{ $page.props.auth.user.email }}
                                         </p>
                                     </div>
+                                </div>
+                                <div class="space-y-1">
+                                    <Link
+                                        :href="route('profile.edit')"
+                                        class="block rounded-md px-3 py-2 text-sm font-medium text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
+                                    >
+                                        Profile Settings
+                                    </Link>
+                                    <form @submit.prevent="logout" class="w-full">
+                                        <button
+                                            type="submit"
+                                            class="block w-full text-left rounded-md px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-900 hover:text-red-200 transition-colors"
+                                        >
+                                            <div class="flex items-center">
+                                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                                </svg>
+                                                Logout
+                                            </div>
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
                         </li>
@@ -219,15 +255,20 @@ onMounted(() => {
                                     >
                                         Profile
                                     </Link>
-                                    <Link
-                                        :href="route('logout')"
-                                        method="post"
-                                        as="button"
-                                        class="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-400 hover:bg-gray-800 hover:text-white"
-                                        @click="sidebarOpen = false"
-                                    >
-                                        Log Out
-                                    </Link>
+                                    <form @submit.prevent="logout" class="w-full">
+                                        <button
+                                            type="submit"
+                                            class="block w-full text-left rounded-md px-3 py-2 text-base font-medium text-gray-400 hover:bg-gray-800 hover:text-white"
+                                            @click="sidebarOpen = false"
+                                        >
+                                            <div class="flex items-center">
+                                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                                </svg>
+                                                Log Out
+                                            </div>
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
                         </div>
@@ -269,13 +310,19 @@ onMounted(() => {
                     <DropdownLink :href="route('profile.edit')">
                         Profile
                     </DropdownLink>
-                    <DropdownLink
-                        :href="route('logout')"
-                        method="post"
-                        as="button"
-                    >
-                        Log Out
-                    </DropdownLink>
+                    <form @submit.prevent="logout" class="w-full">
+                        <button
+                            type="submit"
+                            class="block w-full text-left rounded-md px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-900 hover:text-red-200 transition-colors"
+                        >
+                            <div class="flex items-center">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                                Log Out
+                            </div>
+                        </button>
+                    </form>
                 </template>
             </Dropdown>
         </div>

@@ -30,6 +30,8 @@ class USSDSession extends Model
         'session_data' => 'array',
         'last_activity' => 'datetime',
         'expires_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     public function ussd(): BelongsTo

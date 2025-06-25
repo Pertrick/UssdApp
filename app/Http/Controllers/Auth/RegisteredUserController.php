@@ -46,6 +46,9 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
+        // Add success flash message for toast notification
+        $request->session()->flash('success', 'Account created successfully! Welcome to USSD Pro.');
+
         return redirect(route('dashboard', absolute: false));
     }
 }

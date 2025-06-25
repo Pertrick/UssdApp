@@ -16,9 +16,14 @@ const messageTypeMap = {
 };
 
 // Handle flash messages from Laravel backend
-export function handleFlashMessages(page) {
-    if (page.props.flash) {
-        const flash = page.props.flash;
+export function handleFlashMessages(pageProps) {
+    // Check if pageProps exist
+    if (!pageProps) {
+        return;
+    }
+    
+    if (pageProps.flash) {
+        const flash = pageProps.flash;
         
         // Handle success messages
         if (flash.success) {

@@ -24,7 +24,7 @@ class Controller extends BaseController
             $ussdStats = [
                 'total' => $ussds->count(),
                 'active' => $ussds->where('is_active', true)->count(),
-                'inactive' => $ussds->where('is_active', false)->count(),
+                'inactive' => $ussds->where('is_active', false)->count()
             ];
         }
 
@@ -32,6 +32,7 @@ class Controller extends BaseController
             'user' => $user,
             'business' => $business,
             'ussdStats' => $ussdStats,
+            'recentActivities' => $user->activities()->orderBy('created_at', 'desc')->limit(5)->get()
         ]);
     }
 }

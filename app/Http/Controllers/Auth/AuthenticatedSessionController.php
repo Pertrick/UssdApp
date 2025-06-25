@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Services\ActivityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -33,6 +35,12 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // Log the login activity
+        ActivityService::logLogin(Auth::id());
+
+        // Add success flash message for toast notification
+        $request->session()->flash('success', 'Welcome back! You have successfully logged in.');
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
@@ -41,12 +49,21 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
+        // Log the logout activity before logging out
+        if (Auth::check()) {
+            ActivityService::logLogout(Auth::id());
+        }
+
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
 
         $request->session()->regenerateToken();
 
+        // Add success flash message for logout
+        $request->session()->flash('success', 'You have been successfully logged out.');
+
+        // Simple redirect to welcome page
         return redirect('/');
     }
 }
