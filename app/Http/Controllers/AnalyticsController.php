@@ -88,7 +88,7 @@ class AnalyticsController extends Controller
                 'start_date' => $startDate,
                 'end_date' => $endDate,
             ],
-        ]);
+        ])->with('success', 'Analytics data loaded successfully!');
     }
 
     /**
@@ -343,16 +343,60 @@ class AnalyticsController extends Controller
     {
         $startDate = $request->input('start_date', now()->subDays(30)->format('Y-m-d'));
         $endDate = $request->input('end_date', now()->format('Y-m-d'));
-        $format = $request->input('format', 'excel');
+        $format = $request->input('format', 'json');
 
         if ($ussd) {
             if ($ussd->user_id !== Auth::id()) {
                 abort(403);
             }
-            if ($format === 'csv' || $format === 'xlsx' || $format === 'excel') {
-                $export = new USSDAnalyticsExport($ussd, $startDate, $endDate);
-                $filename = $ussd->name . '_analytics_' . date('Y-m-d') . '.xlsx';
-                return Excel::download($export, $filename);
+            if ($format === 'excel' || $format === 'xlsx') {
+                // Simple Excel export using the data we already have
+                $filename = ($ussd ? $ussd->name : 'all_ussds') . '_analytics_' . date('Y-m-d') . '.xlsx';
+                
+                return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
+                    private $data;
+                    
+                    public function __construct($data) {
+                        $this->data = $data;
+                    }
+                    
+                    public function array(): array {
+                        $rows = [];
+                        
+                        // Add summary
+                        $rows[] = ['Summary'];
+                        $rows[] = ['Metric', 'Value'];
+                        foreach ($this->data['summary'] as $key => $value) {
+                            $rows[] = [ucwords(str_replace('_', ' ', $key)), $value];
+                        }
+                        $rows[] = []; // Empty row
+                        
+                        // Add sessions
+                        $rows[] = ['Sessions'];
+                        if (!empty($this->data['sessions'])) {
+                            $rows[] = array_keys($this->data['sessions'][0]);
+                            foreach ($this->data['sessions'] as $session) {
+                                $rows[] = array_values($session);
+                            }
+                        }
+                        $rows[] = []; // Empty row
+                        
+                        // Add interactions
+                        $rows[] = ['Interactions'];
+                        if (!empty($this->data['interactions'])) {
+                            $rows[] = array_keys($this->data['interactions'][0]);
+                            foreach ($this->data['interactions'] as $interaction) {
+                                $rows[] = array_values($interaction);
+                            }
+                        }
+                        
+                        return $rows;
+                    }
+                    
+                    public function headings(): array {
+                        return [];
+                    }
+                }, $filename);
             }
             $data = $this->getUSSDAnalyticsData($ussd, $startDate, $endDate);
         } else {
@@ -360,7 +404,7 @@ class AnalyticsController extends Controller
             $data = $this->getAllUSSDsAnalyticsData(Auth::id(), $startDate, $endDate);
         }
 
-        return response()->json($data);
+        return response()->json($data)->with('success', 'Data exported successfully!');
     }
 
     /**

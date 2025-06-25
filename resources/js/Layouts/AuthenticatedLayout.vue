@@ -1,11 +1,19 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import { Link } from '@inertiajs/vue3';
+import { handleFlashMessages } from '@/helpers/toast';
 
 const sidebarOpen = ref(false);
+const page = usePage();
+
+// Handle flash messages when component mounts
+onMounted(() => {
+    handleFlashMessages(page.props);
+});
 </script>
 
 <template>

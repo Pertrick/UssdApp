@@ -162,7 +162,7 @@ const submit = (values, actions) => {
                             <div class="text-center pt-4 border-t border-gray-200">
                                 <p class="text-sm text-gray-600">
                                     Don't have an account? 
-                                    <Link href="/register" class="font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
+                                    <Link :href="route('business.register')" class="font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
                                         Create one here
                                     </Link>
                                 </p>

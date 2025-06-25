@@ -256,6 +256,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import { showToast } from '@/helpers/toast'
 
 const props = defineProps({
   ussd: Object,
@@ -266,14 +267,53 @@ const props = defineProps({
   dateRange: Object,
 })
 
+// Ensure proper date range with defaults
+const dateRange = ref({
+  start_date: props.dateRange?.start_date || getDefaultStartDate(),
+  end_date: props.dateRange?.end_date || getDefaultEndDate(),
+})
+
+// Helper functions to get proper default dates
+function getDefaultEndDate() {
+  const today = new Date()
+  return today.toISOString().split('T')[0] // YYYY-MM-DD format
+}
+
+function getDefaultStartDate() {
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  return thirtyDaysAgo.toISOString().split('T')[0] // YYYY-MM-DD format
+}
+
+// Validate and fix date range if needed
+function validateDateRange() {
+  const start = new Date(dateRange.value.start_date)
+  const end = new Date(dateRange.value.end_date)
+  
+  if (start > end) {
+    // Swap dates if they're in wrong order
+    const temp = dateRange.value.start_date
+    dateRange.value.start_date = dateRange.value.end_date
+    dateRange.value.end_date = temp
+  }
+}
+
+// Validate dates on component mount
+onMounted(() => {
+  validateDateRange()
+})
+
 const refreshData = () => {
+  showToast.info('Refreshing analytics data...')
   router.reload()
 }
 
 const updateDateRange = () => {
+  validateDateRange() // Validate before sending
+  showToast.info('Updating date range...')
   router.get(route('analytics.ussd', props.ussd.id), {
-    start_date: props.dateRange.start_date,
-    end_date: props.dateRange.end_date,
+    start_date: dateRange.value.start_date,
+    end_date: dateRange.value.end_date,
   })
 }
 
