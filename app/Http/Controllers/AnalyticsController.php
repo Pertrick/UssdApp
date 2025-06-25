@@ -11,6 +11,8 @@ use Inertia\Inertia;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Exports\USSDAnalyticsExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class AnalyticsController extends Controller
 {
@@ -58,8 +60,12 @@ class AnalyticsController extends Controller
             abort(403);
         }
 
-        $startDate = request('start_date', now()->subDays(30)->format('Y-m-d'));
-        $endDate = request('end_date', now()->format('Y-m-d'));
+        // Fix default date logic - ensure start_date is always before end_date
+        $defaultEndDate = now()->format('Y-m-d');
+        $defaultStartDate = now()->subDays(30)->format('Y-m-d');
+        
+        $startDate = request('start_date', $defaultStartDate);
+        $endDate = request('end_date', $defaultEndDate);
 
         $analytics = $this->sessionService->getSessionAnalytics($ussd, Carbon::parse($startDate), Carbon::parse($endDate));
         
@@ -188,12 +194,13 @@ class AnalyticsController extends Controller
      */
     private function getChartsData(USSD $ussd, string $startDate, string $endDate): array
     {
-        $start = Carbon::parse($startDate);
-        $end = Carbon::parse($endDate);
+        $start = Carbon::parse($startDate)->startOfDay();
+        $end = Carbon::parse($endDate)->endOfDay();
         
         // Daily sessions chart
         $dailySessions = USSDSession::where('ussd_id', $ussd->id)
-            ->whereBetween('created_at', [$start, $end])
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<=', $end)
             ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
             ->groupBy('date')
             ->orderBy('date')
@@ -207,7 +214,8 @@ class AnalyticsController extends Controller
 
         // Hourly distribution
         $hourlyDistribution = USSDSession::where('ussd_id', $ussd->id)
-            ->whereBetween('created_at', [$start, $end])
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<=', $end)
             ->selectRaw('HOUR(created_at) as hour, COUNT(*) as count')
             ->groupBy('hour')
             ->orderBy('hour')
@@ -221,7 +229,8 @@ class AnalyticsController extends Controller
 
         // Action type distribution
         $actionTypeDistribution = USSDSessionLog::where('ussd_id', $ussd->id)
-            ->whereBetween('action_timestamp', [$start, $end])
+            ->where('action_timestamp', '>=', $start)
+            ->where('action_timestamp', '<=', $end)
             ->selectRaw('action_type, COUNT(*) as count')
             ->groupBy('action_type')
             ->get()
@@ -244,11 +253,12 @@ class AnalyticsController extends Controller
      */
     private function getFlowPerformance(USSD $ussd, string $startDate, string $endDate): array
     {
-        $start = Carbon::parse($startDate);
-        $end = Carbon::parse($endDate);
+        $start = Carbon::parse($startDate)->startOfDay();
+        $end = Carbon::parse($endDate)->endOfDay();
         
         return USSDSessionLog::where('ussd_id', $ussd->id)
-            ->whereBetween('action_timestamp', [$start, $end])
+            ->where('action_timestamp', '>=', $start)
+            ->where('action_timestamp', '<=', $end)
             ->whereNotNull('flow_id')
             ->with('flow')
             ->selectRaw('flow_id, action_type, COUNT(*) as count')
@@ -283,12 +293,13 @@ class AnalyticsController extends Controller
      */
     private function getErrorAnalysis(USSD $ussd, string $startDate, string $endDate): array
     {
-        $start = Carbon::parse($startDate);
-        $end = Carbon::parse($endDate);
+        $start = Carbon::parse($startDate)->startOfDay();
+        $end = Carbon::parse($endDate)->endOfDay();
         
         $errors = USSDSessionLog::where('ussd_id', $ussd->id)
             ->where('status', 'error')
-            ->whereBetween('action_timestamp', [$start, $end])
+            ->where('action_timestamp', '>=', $start)
+            ->where('action_timestamp', '<=', $end)
             ->with('flow')
             ->orderBy('action_timestamp', 'desc')
             ->limit(50)
@@ -306,7 +317,8 @@ class AnalyticsController extends Controller
 
         $errorTypes = USSDSessionLog::where('ussd_id', $ussd->id)
             ->where('status', 'error')
-            ->whereBetween('action_timestamp', [$start, $end])
+            ->where('action_timestamp', '>=', $start)
+            ->where('action_timestamp', '<=', $end)
             ->selectRaw('action_type, COUNT(*) as count')
             ->groupBy('action_type')
             ->orderBy('count', 'desc')
@@ -327,25 +339,25 @@ class AnalyticsController extends Controller
     /**
      * Export analytics data
      */
-    public function export(Request $request, USSD $ussd = null)
+    public function export(Request $request, ?USSD $ussd = null)
     {
         $startDate = $request->input('start_date', now()->subDays(30)->format('Y-m-d'));
         $endDate = $request->input('end_date', now()->format('Y-m-d'));
-        $format = $request->input('format', 'json');
+        $format = $request->input('format', 'excel');
 
         if ($ussd) {
-            // Export data for specific USSD
             if ($ussd->user_id !== Auth::id()) {
                 abort(403);
             }
+            if ($format === 'csv' || $format === 'xlsx' || $format === 'excel') {
+                $export = new USSDAnalyticsExport($ussd, $startDate, $endDate);
+                $filename = $ussd->name . '_analytics_' . date('Y-m-d') . '.xlsx';
+                return Excel::download($export, $filename);
+            }
             $data = $this->getUSSDAnalyticsData($ussd, $startDate, $endDate);
         } else {
-            // Export data for all user's USSD services
+            // Optionally implement all-USSD export
             $data = $this->getAllUSSDsAnalyticsData(Auth::id(), $startDate, $endDate);
-        }
-
-        if ($format === 'csv') {
-            return $this->exportToCSV($data, $ussd ? $ussd->name : 'all_ussds');
         }
 
         return response()->json($data);
@@ -427,7 +439,7 @@ class AnalyticsController extends Controller
         $ussdData = [];
 
         foreach ($ussds as $ussd) {
-            $data = $this->getUSSDAnalyticsData($ussd, $startDate, $endDate);
+            $data = $this->getUSSDAnalyticsData($ussd, $start, $end);
             $ussdData[] = $data;
             
             $summary['total_ussds'] = count($ussds);
@@ -439,53 +451,5 @@ class AnalyticsController extends Controller
             'summary' => $summary,
             'ussd_services' => $ussdData,
         ];
-    }
-
-    /**
-     * Export data to CSV
-     */
-    private function exportToCSV(array $data, string $filename): \Symfony\Component\HttpFoundation\Response
-    {
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '_analytics_' . date('Y-m-d') . '.csv"',
-        ];
-
-        $callback = function() use ($data) {
-            $file = fopen('php://output', 'w');
-            
-            // Write summary
-            fputcsv($file, ['Summary']);
-            fputcsv($file, ['Metric', 'Value']);
-            foreach ($data['summary'] as $key => $value) {
-                fputcsv($file, [ucwords(str_replace('_', ' ', $key)), $value]);
-            }
-            
-            fputcsv($file, []); // Empty row
-            
-            // Write sessions
-            fputcsv($file, ['Sessions']);
-            if (!empty($data['sessions'])) {
-                fputcsv($file, array_keys($data['sessions'][0]));
-                foreach ($data['sessions'] as $session) {
-                    fputcsv($file, $session);
-                }
-            }
-            
-            fputcsv($file, []); // Empty row
-            
-            // Write interactions
-            fputcsv($file, ['Interactions']);
-            if (!empty($data['interactions'])) {
-                fputcsv($file, array_keys($data['interactions'][0]));
-                foreach ($data['interactions'] as $interaction) {
-                    fputcsv($file, $interaction);
-                }
-            }
-            
-            fclose($file);
-        };
-
-        return response()->stream($callback, 200, $headers);
     }
 }

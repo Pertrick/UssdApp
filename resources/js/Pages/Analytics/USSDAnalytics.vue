@@ -26,12 +26,12 @@
           <button @click="refreshData" class="px-3 py-1 text-xs bg-green-100 text-green-600 rounded hover:bg-green-200">
             Refresh
           </button>
-          <Link 
+          <a
             :href="route('analytics.export.ussd', ussd.id)" 
             class="px-3 py-1 text-xs bg-purple-100 text-purple-600 rounded hover:bg-purple-200"
           >
             Export
-          </Link>
+          </a>
         </div>
       </div>
     </template>
@@ -106,7 +106,7 @@
               </div>
               <div class="ml-4">
                 <p class="text-sm font-medium text-gray-600">Avg Session Duration</p>
-                <p class="text-2xl font-bold text-gray-900">{{ analytics.avg_session_duration || 0 }}s</p>
+                <p class="text-2xl font-bold text-gray-900">{{ analytics.average_session_duration || 0 }}s</p>
                 <p class="text-xs text-gray-500">Seconds per session</p>
               </div>
             </div>

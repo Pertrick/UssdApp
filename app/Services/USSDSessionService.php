@@ -265,16 +265,18 @@ class USSDSessionService
     /**
      * Get session analytics
      */
-    public function getSessionAnalytics(USSD $ussd, Carbon $startDate = null, Carbon $endDate = null): array
+    public function getSessionAnalytics(USSD $ussd, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $startDate = $startDate ?? now()->subDays(30);
         $endDate = $endDate ?? now();
 
         $sessions = USSDSession::where('ussd_id', $ussd->id)
-            ->whereBetween('created_at', [$startDate, $endDate]);
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate);
 
         $logs = USSDSessionLog::where('ussd_id', $ussd->id)
-            ->whereBetween('action_timestamp', [$startDate, $endDate]);
+            ->whereDate('action_timestamp', '>=', $startDate)
+            ->whereDate('action_timestamp', '<=', $endDate);
 
         return [
             'total_sessions' => $sessions->count(),
@@ -294,8 +296,10 @@ class USSDSessionService
     private function calculateAverageSessionDuration(int $ussdId, Carbon $startDate, Carbon $endDate): float
     {
         $sessions = USSDSession::where('ussd_id', $ussdId)
-            ->whereBetween('created_at', [$startDate, $endDate])
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate)
             ->where('status', 'completed')
+            ->whereNotNull('last_activity')
             ->get();
 
         if ($sessions->isEmpty()) {
@@ -303,7 +307,13 @@ class USSDSessionService
         }
 
         $totalDuration = $sessions->sum(function ($session) {
-            return $session->last_activity->diffInSeconds($session->created_at);
+            if (!$session->created_at || !$session->last_activity) {
+                return 0;
+            }
+            
+            $duration = $session->last_activity->diffInSeconds($session->created_at);
+            
+            return max(0, $duration);
         });
 
         return round($totalDuration / $sessions->count(), 2);
@@ -315,7 +325,8 @@ class USSDSessionService
     private function calculateCompletionRate(int $ussdId, Carbon $startDate, Carbon $endDate): float
     {
         $totalSessions = USSDSession::where('ussd_id', $ussdId)
-            ->whereBetween('created_at', [$startDate, $endDate])
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate)
             ->count();
 
         if ($totalSessions === 0) {
@@ -323,7 +334,8 @@ class USSDSessionService
         }
 
         $completedSessions = USSDSession::where('ussd_id', $ussdId)
-            ->whereBetween('created_at', [$startDate, $endDate])
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate)
             ->where('status', 'completed')
             ->count();
 
@@ -336,7 +348,8 @@ class USSDSessionService
     private function calculateErrorRate(int $ussdId, Carbon $startDate, Carbon $endDate): float
     {
         $totalLogs = USSDSessionLog::where('ussd_id', $ussdId)
-            ->whereBetween('action_timestamp', [$startDate, $endDate])
+            ->whereDate('action_timestamp', '>=', $startDate)
+            ->whereDate('action_timestamp', '<=', $endDate)
             ->count();
 
         if ($totalLogs === 0) {
@@ -344,7 +357,8 @@ class USSDSessionService
         }
 
         $errorLogs = USSDSessionLog::where('ussd_id', $ussdId)
-            ->whereBetween('action_timestamp', [$startDate, $endDate])
+            ->whereDate('action_timestamp', '>=', $startDate)
+            ->whereDate('action_timestamp', '<=', $endDate)
             ->where('status', 'error')
             ->count();
 
