@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class USSD extends Model
 {
@@ -42,6 +43,24 @@ class USSD extends Model
         return $this->belongsTo(Business::class);
     }
 
+
+     /**
+     * Get the sessions for this USSD.
+     */
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(USSDSession::class, 'ussd_id');
+    }
+
+    /**
+     * Get the flows for this USSD.
+     */
+    public function flows(): HasMany
+    {
+        return $this->hasMany(USSDFlow::class, 'ussd_id');
+    }
+
+    
     /**
      * Validation rules for USSD creation/update
      */
