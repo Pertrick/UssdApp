@@ -70,8 +70,91 @@
                   <option value="navigate">Navigate</option>
                   <option value="message">Message</option>
                   <option value="end_session">End Session</option>
+                  <option value="input_text">Input Text</option>
+                  <option value="input_number">Input Number</option>
+                  <option value="input_phone">Input Phone</option>
+                  <option value="input_account">Input Account</option>
+                  <option value="input_pin">Input PIN</option>
+                  <option value="input_amount">Input Amount</option>
+                  <option value="input_selection">Input Selection</option>
                 </select>
                 <input v-if="option.action_type === 'message'" v-model="option.action_data.message" placeholder="Message" class="flex-1 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                
+                <!-- Input Text Configuration -->
+                <div v-if="option.action_type === 'input_text'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter your name)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.validation" placeholder="Validation regex (optional)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input Number Configuration -->
+                <div v-if="option.action_type === 'input_number'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter amount)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <div class="flex gap-2">
+                    <input v-model="option.action_data.min" type="number" placeholder="Min value" class="w-1/2 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                    <input v-model="option.action_data.max" type="number" placeholder="Max value" class="w-1/2 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  </div>
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input Phone Configuration -->
+                <div v-if="option.action_type === 'input_phone'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter phone number)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <select v-model="option.action_data.country_code" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                    <option value="+234">Nigeria (+234)</option>
+                    <option value="+254">Kenya (+254)</option>
+                    <option value="+256">Uganda (+256)</option>
+                    <option value="+255">Tanzania (+255)</option>
+                    <option value="+233">Ghana (+233)</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <input v-if="option.action_data.country_code === 'custom'" v-model="option.action_data.custom_country_code" placeholder="Custom country code" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input Account Configuration -->
+                <div v-if="option.action_type === 'input_account'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter account number)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <select v-model="option.action_data.account_type" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                    <option value="bank">Bank Account</option>
+                    <option value="mobile_money">Mobile Money</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <input v-model="option.action_data.length" type="number" placeholder="Expected length" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input PIN Configuration -->
+                <div v-if="option.action_type === 'input_pin'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter PIN)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.length" type="number" placeholder="PIN length (e.g., 4)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input Amount Configuration -->
+                <div v-if="option.action_type === 'input_amount'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Enter amount)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <div class="flex gap-2">
+                    <input v-model="option.action_data.min_amount" type="number" placeholder="Min amount" class="w-1/2 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                    <input v-model="option.action_data.max_amount" type="number" placeholder="Max amount" class="w-1/2 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  </div>
+                  <select v-model="option.action_data.currency" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                    <option value="NGN">Naira (₦)</option>
+                    <option value="KES">Kenya Shilling (KSh)</option>
+                    <option value="UGX">Uganda Shilling (USh)</option>
+                    <option value="TZS">Tanzania Shilling (TSh)</option>
+                    <option value="GHS">Ghana Cedi (₵)</option>
+                    <option value="USD">US Dollar ($)</option>
+                  </select>
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
+
+                <!-- Input Selection Configuration -->
+                <div v-if="option.action_type === 'input_selection'" class="flex-1 space-y-2">
+                  <input v-model="option.action_data.prompt" placeholder="Enter prompt (e.g., Select option)" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                  <textarea v-model="option.action_data.options" placeholder="Enter options (one per line)" rows="3" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"></textarea>
+                  <input v-model="option.action_data.error_message" placeholder="Error message" class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                </div>
                 <select v-if="option.action_type === 'navigate'" v-model="option.next_flow_id" class="w-40 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
                   <option value="">Select flow</option>
                   <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">{{ flow.name }}</option>
@@ -272,6 +355,13 @@
               <option value="navigate">Navigate</option>
               <option value="message">Message</option>
               <option value="end_session">End Session</option>
+              <option value="input_text">Input Text</option>
+              <option value="input_number">Input Number</option>
+              <option value="input_phone">Input Phone</option>
+              <option value="input_account">Input Account</option>
+              <option value="input_pin">Input PIN</option>
+              <option value="input_amount">Input Amount</option>
+              <option value="input_selection">Input Selection</option>
             </select>
             <p v-if="optionErrors.action_type" class="mt-1 text-sm text-red-600">{{ optionErrors.action_type }}</p>
           </div>
@@ -286,16 +376,303 @@
             />
             <p v-if="optionErrors.message" class="mt-1 text-sm text-red-600">{{ optionErrors.message }}</p>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Next Flow</label>
-            <select 
-              v-model="optionForm.next_flow_id" 
-              :class="[optionErrors.next_flow_id ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded shadow-sm sm:text-sm']"
-            >
-              <option value="">Select a flow</option>
-              <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">{{ flow.name }}</option>
-            </select>
-            <p v-if="optionErrors.next_flow_id" class="mt-1 text-sm text-red-600">{{ optionErrors.next_flow_id }}</p>
+          <div v-if="optionForm.action_type === 'input_text'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter your name)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Validation Regex (Optional)</label>
+              <input 
+                v-model="optionForm.action_data.validation" 
+                type="text"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                placeholder="e.g., ^[a-zA-Z ]+$"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_number'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter amount)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Min Value</label>
+                <input 
+                  v-model="optionForm.action_data.min" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Minimum value"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Max Value</label>
+                <input 
+                  v-model="optionForm.action_data.max" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Maximum value"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_phone'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter phone number)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Country Code</label>
+              <select 
+                v-model="optionForm.action_data.country_code"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="+234">Nigeria (+234)</option>
+                <option value="+254">Kenya (+254)</option>
+                <option value="+256">Uganda (+256)</option>
+                <option value="+255">Tanzania (+255)</option>
+                <option value="+233">Ghana (+233)</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div v-if="optionForm.action_data.country_code === 'custom'">
+              <label class="block text-sm font-medium text-gray-700">Custom Country Code</label>
+              <input 
+                v-model="optionForm.action_data.custom_country_code" 
+                type="text"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                placeholder="e.g., +1"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_account'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter account number)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Account Type</label>
+              <select 
+                v-model="optionForm.action_data.account_type"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="bank">Bank Account</option>
+                <option value="mobile_money">Mobile Money</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Expected Length</label>
+              <input 
+                v-model="optionForm.action_data.length" 
+                type="number"
+                :class="[optionErrors.length ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="e.g., 10"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.length" class="mt-1 text-sm text-red-600">{{ optionErrors.length }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_pin'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter PIN)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">PIN Length</label>
+              <input 
+                v-model="optionForm.action_data.length" 
+                type="number"
+                :class="[optionErrors.length ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="e.g., 4"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.length" class="mt-1 text-sm text-red-600">{{ optionErrors.length }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_amount'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter amount)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Min Amount</label>
+                <input 
+                  v-model="optionForm.action_data.min_amount" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Minimum amount"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Max Amount</label>
+                <input 
+                  v-model="optionForm.action_data.max_amount" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Maximum amount"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Currency</label>
+              <select 
+                v-model="optionForm.action_data.currency"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="NGN">Naira (₦)</option>
+                <option value="KES">Kenya Shilling (KSh)</option>
+                <option value="UGX">Uganda Shilling (USh)</option>
+                <option value="TZS">Tanzania Shilling (TSh)</option>
+                <option value="GHS">Ghana Cedi (₵)</option>
+                <option value="USD">US Dollar ($)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="optionForm.action_type === 'input_selection'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="optionForm.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Select option)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Options</label>
+              <textarea 
+                v-model="optionForm.action_data.options" 
+                rows="3"
+                :class="[optionErrors.options ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter options (one per line)"
+                @input="validateOptionFormRealTime"
+              ></textarea>
+              <p v-if="optionErrors.options" class="mt-1 text-sm text-red-600">{{ optionErrors.options }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="optionForm.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
           </div>
         </div>
       </FormModal>
@@ -347,6 +724,13 @@
               <option value="navigate">Navigate</option>
               <option value="message">Message</option>
               <option value="end_session">End Session</option>
+              <option value="input_text">Input Text</option>
+              <option value="input_number">Input Number</option>
+              <option value="input_phone">Input Phone</option>
+              <option value="input_account">Input Account</option>
+              <option value="input_pin">Input PIN</option>
+              <option value="input_amount">Input Amount</option>
+              <option value="input_selection">Input Selection</option>
             </select>
             <p v-if="optionErrors.action_type" class="mt-1 text-sm text-red-600">{{ optionErrors.action_type }}</p>
           </div>
@@ -361,16 +745,303 @@
             />
             <p v-if="optionErrors.message" class="mt-1 text-sm text-red-600">{{ optionErrors.message }}</p>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Next Flow</label>
-            <select 
-              v-model="selectedOption.next_flow_id" 
-              :class="[optionErrors.next_flow_id ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded shadow-sm sm:text-sm']"
-            >
-              <option value="">Select a flow</option>
-              <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">{{ flow.name }}</option>
-            </select>
-            <p v-if="optionErrors.next_flow_id" class="mt-1 text-sm text-red-600">{{ optionErrors.next_flow_id }}</p>
+          <div v-if="selectedOption.action_type === 'input_text'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter your name)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Validation Regex (Optional)</label>
+              <input 
+                v-model="selectedOption.action_data.validation" 
+                type="text"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                placeholder="e.g., ^[a-zA-Z ]+$"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_number'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter amount)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Min Value</label>
+                <input 
+                  v-model="selectedOption.action_data.min" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Minimum value"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Max Value</label>
+                <input 
+                  v-model="selectedOption.action_data.max" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Maximum value"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_phone'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter phone number)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Country Code</label>
+              <select 
+                v-model="selectedOption.action_data.country_code"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="+234">Nigeria (+234)</option>
+                <option value="+254">Kenya (+254)</option>
+                <option value="+256">Uganda (+256)</option>
+                <option value="+255">Tanzania (+255)</option>
+                <option value="+233">Ghana (+233)</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div v-if="selectedOption.action_data.country_code === 'custom'">
+              <label class="block text-sm font-medium text-gray-700">Custom Country Code</label>
+              <input 
+                v-model="selectedOption.action_data.custom_country_code" 
+                type="text"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                placeholder="e.g., +1"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_account'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter account number)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Account Type</label>
+              <select 
+                v-model="selectedOption.action_data.account_type"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="bank">Bank Account</option>
+                <option value="mobile_money">Mobile Money</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Expected Length</label>
+              <input 
+                v-model="selectedOption.action_data.length" 
+                type="number"
+                :class="[optionErrors.length ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="e.g., 10"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.length" class="mt-1 text-sm text-red-600">{{ optionErrors.length }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_pin'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter PIN)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">PIN Length</label>
+              <input 
+                v-model="selectedOption.action_data.length" 
+                type="number"
+                :class="[optionErrors.length ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="e.g., 4"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.length" class="mt-1 text-sm text-red-600">{{ optionErrors.length }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_amount'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Enter amount)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Min Amount</label>
+                <input 
+                  v-model="selectedOption.action_data.min_amount" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Minimum amount"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700">Max Amount</label>
+                <input 
+                  v-model="selectedOption.action_data.max_amount" 
+                  type="number"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" 
+                  placeholder="Maximum amount"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Currency</label>
+              <select 
+                v-model="selectedOption.action_data.currency"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="NGN">Naira (₦)</option>
+                <option value="KES">Kenya Shilling (KSh)</option>
+                <option value="UGX">Uganda Shilling (USh)</option>
+                <option value="TZS">Tanzania Shilling (TSh)</option>
+                <option value="GHS">Ghana Cedi (₵)</option>
+                <option value="USD">US Dollar ($)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
+          </div>
+          <div v-if="selectedOption.action_type === 'input_selection'" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Prompt</label>
+              <input 
+                v-model="selectedOption.action_data.prompt" 
+                type="text"
+                :class="[optionErrors.prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter prompt (e.g., Select option)"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.prompt" class="mt-1 text-sm text-red-600">{{ optionErrors.prompt }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Options</label>
+              <textarea 
+                v-model="selectedOption.action_data.options" 
+                rows="3"
+                :class="[optionErrors.options ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Enter options (one per line)"
+                @input="validateOptionFormRealTime"
+              ></textarea>
+              <p v-if="optionErrors.options" class="mt-1 text-sm text-red-600">{{ optionErrors.options }}</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Error Message</label>
+              <input 
+                v-model="selectedOption.action_data.error_message" 
+                type="text"
+                :class="[optionErrors.error_message ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
+                placeholder="Error message to show if validation fails"
+                @input="validateOptionFormRealTime"
+              />
+              <p v-if="optionErrors.error_message" class="mt-1 text-sm text-red-600">{{ optionErrors.error_message }}</p>
+            </div>
           </div>
         </div>
       </FormModal>
@@ -525,7 +1196,7 @@ const validateOptionFormRealTime = () => {
     }
     
     // Validate action_type
-    if (!['navigate', 'message', 'end_session'].includes(optionForm.action_type)) {
+    if (!['navigate', 'message', 'end_session', 'input_text', 'input_number', 'input_phone', 'input_account', 'input_pin', 'input_amount', 'input_selection'].includes(optionForm.action_type)) {
         errors.action_type = 'Invalid action type'
     }
     
@@ -609,13 +1280,16 @@ const addOptionToForm = () => {
         if (!selectedFlow.value.options) {
             selectedFlow.value.options = []
         }
-        selectedFlow.value.options.push({
+        
+        const newOption = {
             option_text: '',
             option_value: '',
             action_type: 'navigate',
-            action_data: null, // Set to null for navigate, will be set to {message: ''} for message type
+            action_data: null, // Will be set by the watcher based on action_type
             next_flow_id: null
-        })
+        }
+        
+        selectedFlow.value.options.push(newOption)
     }
 }
 
@@ -635,11 +1309,7 @@ const getCSRFToken = () => {
 }
 
 const saveFlow = async () => {
-    console.log('saveFlow called')
-    console.log('Selected flow:', selectedFlow.value)
-    console.log('Show edit modal:', showEditFlowModal.value)
-    console.log('Show add modal:', showAddFlowModal.value)
-    
+
     // Determine if we're editing an existing flow or creating a new one
     const isEditing = selectedFlow.value && selectedFlow.value.id && !showAddFlowModal.value
     
@@ -1074,15 +1744,72 @@ const validateOptionForm = () => {
         optionErrors.value.option_value = 'Option value cannot exceed 50 characters'
     }
     
-    if (!['navigate', 'message', 'end_session'].includes(optionForm.action_type)) {
+    if (!['navigate', 'message', 'end_session', 'input_text', 'input_number', 'input_phone', 'input_account', 'input_pin', 'input_amount', 'input_selection'].includes(optionForm.action_type)) {
         optionErrors.value.action_type = 'Invalid action type'
     }
     
+    // Validate input-specific fields
     if (optionForm.action_type === 'message') {
         if (!optionForm.action_data || !optionForm.action_data.message || !optionForm.action_data.message.trim()) {
             optionErrors.value.message = 'Message is required when action type is message'
         } else if (optionForm.action_data.message.length > 500) {
             optionErrors.value.message = 'Message cannot exceed 500 characters'
+        }
+    }
+    
+    if (optionForm.action_type.startsWith('input_')) {
+        if (!optionForm.action_data || !optionForm.action_data.prompt || !optionForm.action_data.prompt.trim()) {
+            optionErrors.value.prompt = 'Prompt is required for input types'
+        } else if (optionForm.action_data.prompt.length > 200) {
+            optionErrors.value.prompt = 'Prompt cannot exceed 200 characters'
+        }
+        
+        if (!optionForm.action_data.error_message || !optionForm.action_data.error_message.trim()) {
+            optionErrors.value.error_message = 'Error message is required for input types'
+        }
+        
+        // Validate specific input types
+        if (optionForm.action_type === 'input_number') {
+            if (optionForm.action_data.min && optionForm.action_data.max && 
+                parseFloat(optionForm.action_data.min) > parseFloat(optionForm.action_data.max)) {
+                optionErrors.value.range = 'Minimum value cannot be greater than maximum value'
+            }
+        }
+        
+        if (optionForm.action_type === 'input_phone') {
+            if (optionForm.action_data.country_code === 'custom' && 
+                (!optionForm.action_data.custom_country_code || !optionForm.action_data.custom_country_code.trim())) {
+                optionErrors.value.country_code = 'Custom country code is required'
+            }
+        }
+        
+        if (optionForm.action_type === 'input_account') {
+            if (!optionForm.action_data.length || !optionForm.action_data.length.trim()) {
+                optionErrors.value.length = 'Expected length is required for account input'
+            } else if (isNaN(optionForm.action_data.length) || parseInt(optionForm.action_data.length) <= 0) {
+                optionErrors.value.length = 'Length must be a positive number'
+            }
+        }
+        
+        if (optionForm.action_type === 'input_pin') {
+            if (!optionForm.action_data.length || !optionForm.action_data.length.trim()) {
+                optionErrors.value.length = 'PIN length is required'
+            } else if (isNaN(optionForm.action_data.length) || parseInt(optionForm.action_data.length) <= 0) {
+                optionErrors.value.length = 'PIN length must be a positive number'
+            }
+        }
+        
+        if (optionForm.action_type === 'input_amount') {
+            if (optionForm.action_data.min_amount && optionForm.action_data.max_amount && 
+                parseFloat(optionForm.action_data.min_amount) > parseFloat(optionForm.action_data.max_amount)) {
+                optionErrors.value.amount_range = 'Minimum amount cannot be greater than maximum amount'
+            }
+        }
+        
+        if (optionForm.action_type === 'input_selection') {
+            if (!optionForm.action_data.options || !optionForm.action_data.options.trim()) {
+                optionErrors.value.options = 'Options are required for selection input'
+            }
         }
     }
     
@@ -1220,8 +1947,29 @@ watch(() => selectedFlow.value?.options, (newOptions) => {
         newOptions.forEach(option => {
             if (option.action_type === 'message' && !option.action_data) {
                 option.action_data = { message: '' }
-            } else if (option.action_type !== 'message' && option.action_data) {
+            } else if (option.action_type === 'input_text' && !option.action_data) {
+                option.action_data = { prompt: '', validation: '', error_message: '' }
+            } else if (option.action_type === 'input_number' && !option.action_data) {
+                option.action_data = { prompt: '', min: '', max: '', error_message: '' }
+            } else if (option.action_type === 'input_phone' && !option.action_data) {
+                option.action_data = { prompt: '', country_code: '+234', custom_country_code: '', error_message: '' }
+            } else if (option.action_type === 'input_account' && !option.action_data) {
+                option.action_data = { prompt: '', account_type: 'bank', length: '', error_message: '' }
+            } else if (option.action_type === 'input_pin' && !option.action_data) {
+                option.action_data = { prompt: '', length: '4', error_message: '' }
+            } else if (option.action_type === 'input_amount' && !option.action_data) {
+                option.action_data = { prompt: '', min_amount: '', max_amount: '', currency: 'NGN', error_message: '' }
+            } else if (option.action_type === 'input_selection' && !option.action_data) {
+                option.action_data = { prompt: '', options: '', error_message: '' }
+            } else if (option.action_type !== 'message' && 
+                       !option.action_type.startsWith('input_') && 
+                       option.action_data) {
                 option.action_data = null
+            }
+            
+            // Clear next_flow_id if action type is not navigate
+            if (option.action_type !== 'navigate') {
+                option.next_flow_id = null
             }
         })
     }
@@ -1231,8 +1979,29 @@ watch(() => selectedFlow.value?.options, (newOptions) => {
 watch(() => optionForm.action_type, (newActionType) => {
     if (newActionType === 'message' && !optionForm.action_data) {
         optionForm.action_data = { message: '' }
-    } else if (newActionType !== 'message' && optionForm.action_data) {
+    } else if (newActionType === 'input_text' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', validation: '', error_message: '' }
+    } else if (newActionType === 'input_number' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', min: '', max: '', error_message: '' }
+    } else if (newActionType === 'input_phone' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', country_code: '+234', custom_country_code: '', error_message: '' }
+    } else if (newActionType === 'input_account' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', account_type: 'bank', length: '', error_message: '' }
+    } else if (newActionType === 'input_pin' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', length: '4', error_message: '' }
+    } else if (newActionType === 'input_amount' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', min_amount: '', max_amount: '', currency: 'NGN', error_message: '' }
+    } else if (newActionType === 'input_selection' && !optionForm.action_data) {
+        optionForm.action_data = { prompt: '', options: '', error_message: '' }
+    } else if (newActionType !== 'message' && 
+               !newActionType.startsWith('input_') && 
+               optionForm.action_data) {
         optionForm.action_data = null
+    }
+    
+    // Clear next_flow_id if action type is not navigate
+    if (newActionType !== 'navigate') {
+        optionForm.next_flow_id = null
     }
 })
 </script>

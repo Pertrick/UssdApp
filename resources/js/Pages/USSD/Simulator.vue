@@ -1,4 +1,6 @@
 <template>
+  <Head title="USSD Simulator" />
+
   <AuthenticatedLayout>
     <template #header>
       <div class="flex items-center justify-between">
@@ -55,13 +57,29 @@
             </div>
             <div v-else-if="!sessionEnded" class="mt-4">
               <div class="flex gap-2 mb-2">
-                <input v-model="userInput" @keyup.enter="sendInput" type="text" maxlength="10" placeholder="Enter option..." class="flex-1 px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" />
+                <input 
+                  v-model="userInput" 
+                  @keyup.enter="sendInput" 
+                  type="text" 
+                  :maxlength="inputMaxLength" 
+                  :placeholder="inputPlaceholder" 
+                  class="flex-1 px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" 
+                />
                 <button @click="sendInput" :disabled="loading || !userInput" class="px-4 py-2 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50">Send</button>
               </div>
-              <!-- Keypad -->
-              <div class="grid grid-cols-3 gap-2">
+              <!-- Keypad - only show for numeric input or when collecting numeric data -->
+              <div v-if="shouldShowKeypad || showKeypad" class="grid grid-cols-3 gap-2">
                 <button v-for="key in keypadKeys" :key="key" @click="appendKey(key)" class="py-2 rounded bg-gray-200 text-lg font-bold hover:bg-gray-300">{{ key }}</button>
                 <button @click="clearInput" class="py-2 rounded bg-yellow-200 text-sm font-semibold col-span-2">Clear</button>
+              </div>
+              <!-- Text input helper buttons -->
+              <div v-else class="flex gap-2 mt-2">
+                <button @click="clearInput" class="flex-1 py-2 rounded bg-yellow-200 text-sm font-semibold">Clear</button>
+                <button @click="showKeypad = true" class="flex-1 py-2 rounded bg-blue-200 text-sm font-semibold">Show Keypad</button>
+              </div>
+              <!-- Hide keypad button when manually shown -->
+              <div v-if="showKeypad && !shouldShowKeypad" class="mt-2">
+                <button @click="showKeypad = false" class="w-full py-2 rounded bg-gray-200 text-sm font-semibold">Hide Keypad</button>
               </div>
             </div>
             <div v-else class="mt-4">
@@ -114,15 +132,17 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue';
-import { router, usePage, Link } from '@inertiajs/vue3';
+import { router, usePage, Link, Head } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ConfirmationModal from '@/Components/ConfirmationModal.vue';
 
 const props = defineProps({
   ussd: Object,
+  session: Object,
+  logs: Array,
 });
 
-const phoneNumber = ref('');
+const phoneNumber = ref('0700000000');
 const sessionStarted = ref(false);
 const sessionEnded = ref(false);
 const sessionId = ref('');
@@ -133,12 +153,24 @@ const loading = ref(false);
 const logs = ref([]);
 const showCloseModal = ref(false);
 const keypadKeys = ['1','2','3','4','5','6','7','8','9','*','0','#'];
+const currentInput = ref('');
+const sessionHistory = ref([]);
+const isSessionActive = ref(false);
+const environment = ref('simulation'); // simulation, sandbox, live
+const inputMaxLength = ref(10);
+const inputPlaceholder = ref('Enter option...');
+const showKeypad = ref(false);
+const currentInputType = ref('menu'); // menu, text, number, phone, account, pin, amount
 
 const closeModalMessage = computed(() => {
   if (sessionStarted.value && !sessionEnded.value) {
     return 'Are you sure you want to close the simulation? Any active session will be ended and all progress will be lost.';
   }
   return 'Are you sure you want to close the simulation?';
+});
+
+const shouldShowKeypad = computed(() => {
+  return ['input_number', 'input_phone', 'input_account', 'input_pin', 'input_amount', 'input_selection'].includes(currentInputType.value);
 });
 
 function appendKey(key) {
@@ -156,6 +188,10 @@ function resetSimulator() {
   errorMessage.value = '';
   logs.value = [];
   phoneNumber.value = '';
+  inputMaxLength.value = 10;
+  inputPlaceholder.value = 'Enter option...';
+  showKeypad.value = false;
+  currentInputType.value = 'menu';
 }
 
 function handleCloseSimulation() {
@@ -165,21 +201,50 @@ function handleCloseSimulation() {
 
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
-  return meta ? meta.getAttribute('content') : '';
+  if (!meta) {
+    console.error('CSRF token meta tag not found');
+    return '';
+  }
+  const token = meta.getAttribute('content');
+  if (!token) {
+    console.error('CSRF token content is empty');
+    return '';
+  }
+  return token;
 }
 
 async function startSession() {
   loading.value = true;
   errorMessage.value = '';
+  
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    errorMessage.value = 'CSRF token not available. Please refresh the page.';
+    loading.value = false;
+    return;
+  }
+  
   try {
     const res = await fetch(route('ussd.simulator.start', { ussd: props.ussd.id }), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': getCsrfToken(),
+        'X-CSRF-TOKEN': csrfToken,
+        'Accept': 'application/json',
       },
-      body: JSON.stringify({ phone_number: phoneNumber.value }),
+      body: JSON.stringify({ phone_number: phoneNumber.value, environment: environment.value }),
     });
+    
+    if (!res.ok) {
+      console.error('Response status:', res.status);
+      if (res.status === 419) {
+        errorMessage.value = 'CSRF token mismatch. Please refresh the page.';
+      } else {
+        errorMessage.value = `Server error: ${res.status}`;
+      }
+      return;
+    }
+    
     const data = await res.json();
     if (data.success) {
       sessionStarted.value = true;
@@ -187,12 +252,18 @@ async function startSession() {
       sessionId.value = data.session_id;
       menuText.value = data.menu_text;
       userInput.value = '';
+      
+      // Set initial input type and UI
+      currentInputType.value = 'menu';
+      updateInputUI('menu');
+      
       fetchLogs();
     } else {
       errorMessage.value = data.message || 'Failed to start session.';
     }
   } catch (e) {
-    errorMessage.value = 'Network error.';
+    console.error('Network error:', e);
+    errorMessage.value = 'Network error. Please check your connection.';
   } finally {
     loading.value = false;
   }
@@ -209,12 +280,22 @@ async function sendInput() {
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': getCsrfToken(),
       },
-      body: JSON.stringify({ session_id: sessionId.value, input: userInput.value }),
+      body: JSON.stringify({ session_id: sessionId.value, input: userInput.value, environment: environment.value }),
     });
     const data = await res.json();
     if (data.success) {
       menuText.value = data.message;
       userInput.value = '';
+      
+      // Update input type and UI based on response
+      if (data.input_type) {
+        currentInputType.value = data.input_type;
+        updateInputUI(data.input_type);
+      } else {
+        currentInputType.value = 'menu';
+        updateInputUI('menu');
+      }
+      
       if (data.session_ended) {
         sessionEnded.value = true;
       }
@@ -229,6 +310,43 @@ async function sendInput() {
   }
 }
 
+function updateInputUI(inputType) {
+  switch (inputType) {
+    case 'input_text':
+      inputMaxLength.value = 50;
+      inputPlaceholder.value = 'Enter text...';
+      break;
+    case 'input_number':
+      inputMaxLength.value = 10;
+      inputPlaceholder.value = 'Enter number...';
+      break;
+    case 'input_phone':
+      inputMaxLength.value = 15;
+      inputPlaceholder.value = 'Enter phone number...';
+      break;
+    case 'input_account':
+      inputMaxLength.value = 20;
+      inputPlaceholder.value = 'Enter account number...';
+      break;
+    case 'input_pin':
+      inputMaxLength.value = 6;
+      inputPlaceholder.value = 'Enter PIN...';
+      break;
+    case 'input_amount':
+      inputMaxLength.value = 10;
+      inputPlaceholder.value = 'Enter amount...';
+      break;
+    case 'input_selection':
+      inputMaxLength.value = 5;
+      inputPlaceholder.value = 'Enter selection...';
+      break;
+    default:
+      inputMaxLength.value = 10;
+      inputPlaceholder.value = 'Enter option...';
+      break;
+  }
+}
+
 async function fetchLogs() {
   if (!sessionId.value) return;
   try {
@@ -239,4 +357,83 @@ async function fetchLogs() {
     // ignore
   }
 }
+
+// Environment status
+const environmentStatus = computed(() => {
+  switch (environment.value) {
+    case 'simulation':
+      return {
+        label: 'Simulation Mode',
+        color: 'bg-blue-100 text-blue-800',
+        description: 'Testing flows locally - no real costs'
+      };
+    case 'sandbox':
+      return {
+        label: 'Sandbox Mode',
+        color: 'bg-yellow-100 text-yellow-800',
+        description: 'Testing with Africastalking sandbox'
+      };
+    case 'live':
+      return {
+        label: 'Live Mode',
+        color: 'bg-green-100 text-green-800',
+        description: 'Real USSD service - live environment'
+      };
+    default:
+      return {
+        label: 'Unknown',
+        color: 'bg-gray-100 text-gray-800',
+        description: 'Environment not configured'
+      };
+  }
+});
+
+// USSD Code display
+const ussdCode = computed(() => {
+  if (!props.ussd) return '*123#';
+  
+  switch (environment.value) {
+    case 'simulation':
+      return props.ussd.testing_ussd_code || '*123#';
+    case 'sandbox':
+      return props.ussd.testing_ussd_code || '*123#';
+    case 'live':
+      return props.ussd.live_ussd_code || '*456#';
+    default:
+      return '*123#';
+  }
+});
+
+const resetSession = () => {
+  sessionId.value = '';
+  isSessionActive.value = false;
+  sessionHistory.value = [];
+  currentInput.value = '';
+};
+
+const switchEnvironment = (newEnv) => {
+  environment.value = newEnv;
+  resetSession();
+};
+
+// Auto-scroll to bottom of chat
+const scrollToBottom = () => {
+  const chatContainer = document.getElementById('chat-container');
+  if (chatContainer) {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+};
+
+onMounted(() => {
+  // Set environment based on USSD configuration
+  if (props.ussd) {
+    if (props.ussd.environment === 'live') {
+      environment.value = 'live';
+    } else if (props.ussd.environment === 'sandbox') {
+      environment.value = 'sandbox';
+    } else {
+      environment.value = 'simulation';
+    }
+  }
+});
 </script> 

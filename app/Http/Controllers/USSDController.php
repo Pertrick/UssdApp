@@ -303,9 +303,11 @@ class USSDController extends Controller
             'options' => 'array',
             'options.*.option_text' => 'required|string|max:255|min:1',
             'options.*.option_value' => 'required|string|max:50|min:1',
-            'options.*.action_type' => 'required|in:navigate,message,end_session',
+            'options.*.action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'options.*.action_data' => 'nullable|array',
             'options.*.action_data.message' => 'required_if:options.*.action_type,message|string|max:500',
+            'options.*.action_data.prompt' => 'required_if:options.*.action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
+            'options.*.action_data.error_message' => 'required_if:options.*.action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
             'options.*.next_flow_id' => 'nullable|exists:ussd_flows,id',
         ], [
             'name.required' => 'Flow name is required.',
@@ -325,6 +327,10 @@ class USSDController extends Controller
             'options.*.action_type.in' => 'Invalid action type.',
             'options.*.action_data.message.required_if' => 'Message is required when action type is message.',
             'options.*.action_data.message.max' => 'Message cannot exceed 500 characters.',
+            'options.*.action_data.prompt.required_if' => 'Prompt is required for input types.',
+            'options.*.action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
+            'options.*.action_data.error_message.required_if' => 'Error message is required for input types.',
+            'options.*.action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'options.*.next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 
@@ -432,9 +438,11 @@ class USSDController extends Controller
         $validated = $request->validate([
             'option_text' => 'required|string|max:255|min:1',
             'option_value' => 'required|string|max:50|min:1',
-            'action_type' => 'required|in:navigate,message,end_session',
+            'action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'action_data' => 'nullable|array',
             'action_data.message' => 'required_if:action_type,message|string|max:500',
+            'action_data.prompt' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
+            'action_data.error_message' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
             'next_flow_id' => 'nullable|exists:ussd_flows,id',
         ], [
             'option_text.required' => 'Option text is required.',
@@ -447,6 +455,10 @@ class USSDController extends Controller
             'action_type.in' => 'Invalid action type.',
             'action_data.message.required_if' => 'Message is required when action type is message.',
             'action_data.message.max' => 'Message cannot exceed 500 characters.',
+            'action_data.prompt.required_if' => 'Prompt is required for input types.',
+            'action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
+            'action_data.error_message.required_if' => 'Error message is required for input types.',
+            'action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 
@@ -511,9 +523,11 @@ class USSDController extends Controller
         $validated = $request->validate([
             'option_text' => 'required|string|max:255|min:1',
             'option_value' => 'required|string|max:50|min:1',
-            'action_type' => 'required|in:navigate,message,end_session',
+            'action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'action_data' => 'nullable|array',
             'action_data.message' => 'required_if:action_type,message|string|max:500',
+            'action_data.prompt' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
+            'action_data.error_message' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
             'next_flow_id' => 'nullable|exists:ussd_flows,id',
         ], [
             'option_text.required' => 'Option text is required.',
@@ -526,6 +540,10 @@ class USSDController extends Controller
             'action_type.in' => 'Invalid action type.',
             'action_data.message.required_if' => 'Message is required when action type is message.',
             'action_data.message.max' => 'Message cannot exceed 500 characters.',
+            'action_data.prompt.required_if' => 'Prompt is required for input types.',
+            'action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
+            'action_data.error_message.required_if' => 'Error message is required for input types.',
+            'action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 

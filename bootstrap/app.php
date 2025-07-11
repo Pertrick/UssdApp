@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ])
         ->validateCsrfTokens(except: [
             'ussd.simulator.start',
+            'ussd.simulator.input',
             'ussd.simulator.logs',
         ]);
 
