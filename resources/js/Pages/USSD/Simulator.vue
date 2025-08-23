@@ -187,7 +187,7 @@ function resetSimulator() {
   userInput.value = '';
   errorMessage.value = '';
   logs.value = [];
-  phoneNumber.value = '';
+  phoneNumber.value = '0700000000'; // Auto-populate with default number
   inputMaxLength.value = 10;
   inputPlaceholder.value = 'Enter option...';
   showKeypad.value = false;

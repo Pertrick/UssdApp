@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Business;
 
 use Illuminate\Foundation\Http\FormRequest;
+use App\Enums\DirectorIdType;
 
 class StoreDirectorRequest extends FormRequest
 {
@@ -25,7 +26,7 @@ class StoreDirectorRequest extends FormRequest
             'directorName' => 'required|string|max:255',
             'directorEmail' => 'required|email|max:255',
             'directorPhone' => 'required|string|max:20',
-            'idType' => 'required|string|in:national_id,drivers_license,international_passport',
+            'idType' => 'required|string|in:' . implode(',', DirectorIdType::toArray()),
             'idNumber' => 'required|string|max:255',
             'idDocument' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240', // max 10MB
             'cacData' => 'required|string', // JSON string from frontend

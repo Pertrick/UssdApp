@@ -1,5 +1,6 @@
 import '../css/app.css';
 import './bootstrap';
+import './utils/csrf';
 
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
@@ -54,5 +55,16 @@ createInertiaApp({
     },
     progress: {
         color: '#4B5563',
+    },
+    // Add CSRF token handling
+    beforeRender: (callback) => {
+        // Ensure CSRF token is available
+        if (document.querySelector('meta[name="csrf-token"]')) {
+            const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            if (token) {
+                window.axios.defaults.headers.common['X-CSRF-TOKEN'] = token;
+            }
+        }
+        callback();
     },
 });

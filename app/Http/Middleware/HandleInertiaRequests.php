@@ -44,6 +44,7 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
             'flash' => $flash,
+            'csrf_token' => csrf_token(),
         ];
     }
 }

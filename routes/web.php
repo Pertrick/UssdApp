@@ -12,6 +12,7 @@ use App\Http\Controllers\ActivityController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\AnalyticsController;
 
+
 Route::get('/', function () {
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
@@ -49,10 +50,10 @@ Route::get('/test-ussd-flows', function () {
 // Test route for authentication and USSD access
 Route::get('/test-ussd-auth', function () {
     return response()->json([
-        'authenticated' => auth()->check(),
-        'user_id' => auth()->id(),
-        'ussd_count' => auth()->check() ? auth()->user()->ussds()->count() : 0,
-        'first_ussd' => auth()->check() ? auth()->user()->ussds()->first() : null,
+        'authenticated' => \Illuminate\Support\Facades\Auth::check(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
+        'ussd_count' => \Illuminate\Support\Facades\Auth::check() ? \Illuminate\Support\Facades\Auth::user()->ussds()->count() : 0,
+        'first_ussd' => \Illuminate\Support\Facades\Auth::check() ? \Illuminate\Support\Facades\Auth::user()->ussds()->first() : null,
     ]);
 })->middleware(['auth'])->name('test.ussd.auth');
 
@@ -110,8 +111,8 @@ Route::middleware(['auth'])->group(function () {
         ->name('business.unverify');
 });
 
-// USSD Routes (Requires auth - these are for authenticated users)
-Route::middleware(['auth'])->group(function () {
+// USSD Routes (Requires auth and verified business - these are for authenticated users with verified businesses)
+Route::middleware(['auth', 'verified.business'])->group(function () {
     Route::get('/ussd', [USSDController::class, 'index'])->name('ussd.index');
     Route::get('/ussd/create', [USSDController::class, 'create'])->name('ussd.create');
     Route::post('/ussd', [USSDController::class, 'store'])->name('ussd.store');
@@ -136,13 +137,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/ussd/{ussd}/simulator/logs', [USSDSimulatorController::class, 'getSessionLogs'])->name('ussd.simulator.logs');
     Route::get('/ussd/{ussd}/simulator/analytics', [USSDSimulatorController::class, 'getAnalytics'])->name('ussd.simulator.analytics');
     
-    // Analytics Routes
+    // Analytics Routes (Requires verified business)
     Route::get('/analytics', [AnalyticsController::class, 'dashboard'])->name('analytics.dashboard');
     Route::get('/analytics/ussd/{ussd}', [AnalyticsController::class, 'ussdAnalytics'])->name('analytics.ussd');
     Route::get('/analytics/export', [AnalyticsController::class, 'export'])->name('analytics.export');
     Route::get('/analytics/export/{ussd}', [AnalyticsController::class, 'export'])->name('analytics.export.ussd');
     
-    // Activity Routes
+    // Activity Routes (Requires verified business)
     Route::get('/activities', [ActivityController::class, 'index'])->name('activities.index');
     Route::get('/activities/recent', [ActivityController::class, 'getRecentActivities'])->name('activities.recent');
 });
@@ -157,10 +158,18 @@ Route::get('/test-csrf', function () {
     ]);
 })->middleware(['auth'])->name('test.csrf');
 
+// CSRF Token Route
+Route::get('/csrf-token', function () {
+    return response()->json(['token' => csrf_token()]);
+})->name('csrf.token');
+
 // Test route for flash messages
 Route::get('/test-flash', function () {
     session()->flash('success', 'This is a test flash message!');
     return Inertia::render('Dashboard');
 })->middleware(['auth'])->name('test.flash');
 
+
+
 require __DIR__ . '/auth.php';
+require __DIR__ .'/admin.php';

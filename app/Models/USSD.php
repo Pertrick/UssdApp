@@ -77,6 +77,112 @@ class USSD extends Model
         return $this->hasMany(USSDFlow::class, 'ussd_id');
     }
 
+    /**
+     * Get the root flow for this USSD.
+     */
+    public function rootFlow()
+    {
+        return $this->flows()->where('is_root', true)->first();
+    }
+
+    /**
+     * Create a default root flow for this USSD.
+     */
+    public function createDefaultRootFlow()
+    {
+        $rootFlow = $this->flows()->create([
+            'name' => 'Main Menu',
+            'description' => 'Main menu for ' . $this->name,
+            'menu_text' => "Welcome to {$this->name}\n\n1. Option 1\n2. Option 2\n3. Option 3\n0. Exit",
+            'is_root' => true,
+            'parent_flow_id' => null,
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+
+        // Create default options for the root flow
+        $this->createDefaultRootFlowOptions($rootFlow);
+
+        return $rootFlow;
+    }
+
+    /**
+     * Create default options for the root flow.
+     */
+    private function createDefaultRootFlowOptions(USSDFlow $rootFlow)
+    {
+        $defaultOptions = [
+            [
+                'option_text' => 'Option 1',
+                'option_value' => '1',
+                'action_type' => 'message',
+                'action_data' => ['message' => 'You selected Option 1. This is a placeholder message.'],
+                'requires_input' => false,
+                'sort_order' => 1,
+                'is_active' => true,
+            ],
+            [
+                'option_text' => 'Option 2',
+                'option_value' => '2',
+                'action_type' => 'message',
+                'action_data' => ['message' => 'You selected Option 2. This is a placeholder message.'],
+                'requires_input' => false,
+                'sort_order' => 2,
+                'is_active' => true,
+            ],
+            [
+                'option_text' => 'Option 3',
+                'option_value' => '3',
+                'action_type' => 'message',
+                'action_data' => ['message' => 'You selected Option 3. This is a placeholder message.'],
+                'requires_input' => false,
+                'sort_order' => 3,
+                'is_active' => true,
+            ],
+            [
+                'option_text' => 'Exit',
+                'option_value' => '0',
+                'action_type' => 'end_session',
+                'action_data' => ['message' => 'Thank you for using our service.'],
+                'requires_input' => false,
+                'sort_order' => 4,
+                'is_active' => true,
+            ],
+        ];
+
+        foreach ($defaultOptions as $option) {
+            $rootFlow->options()->create($option);
+        }
+    }
+
+    /**
+     * Ensure USSD has a root flow, create one if it doesn't exist.
+     */
+    public function ensureRootFlow()
+    {
+        if (!$this->rootFlow()) {
+            return $this->createDefaultRootFlow();
+        }
+        
+        return $this->rootFlow();
+    }
+
+    /**
+     * Check if USSD has any flows.
+     */
+    public function hasFlows()
+    {
+        return $this->flows()->exists();
+    }
+
+    /**
+     * Get the first flow (usually root flow) for this USSD.
+     */
+    public function firstFlow()
+    {
+        return $this->flows()->orderBy('sort_order')->first();
+    }
+
     
     /**
      * Validation rules for USSD creation/update

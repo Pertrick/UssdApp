@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Business;
 
 use Illuminate\Foundation\Http\FormRequest;
+use App\Enums\BusinessType;
 
 class StoreCACRequest extends FormRequest
 {
@@ -24,7 +25,7 @@ class StoreCACRequest extends FormRequest
         return [
             'cacNumber' => 'required|string|max:255',
             'registrationDate' => 'required|date',
-            'businessType' => 'required|string|in:sole_proprietorship,partnership,limited_liability',
+            'businessType' => 'required|string|in:' . implode(',', BusinessType::toArray()),
             'cacDocument' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240', // max 10MB
         ];
     }

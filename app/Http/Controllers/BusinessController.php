@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Business;
 use App\Models\User;
+use App\Enums\BusinessRegistrationStatus;
+use App\Enums\BusinessType;
+use App\Enums\DirectorIdType;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Requests\Business\StoreBusinessRequest;
@@ -44,7 +47,7 @@ class BusinessController extends Controller
                 'state' => $validated['state'],
                 'city' => $validated['city'],
                 'address' => $validated['address'],
-                'registration_status' => 'cac_info_pending',
+                'registration_status' => BusinessRegistrationStatus::CAC_INFO_PENDING,
                 'is_primary' => true,
             ]);
 
@@ -159,10 +162,10 @@ class BusinessController extends Controller
             // Update CAC information
             $business->update([
                 'cac_number' => $cacData['cacNumber'],
-                'business_type' => $cacData['businessType'],
+                'business_type' => BusinessType::from($cacData['businessType']),
                 'registration_date' => $cacData['registrationDate'],
                 'cac_document_path' => $cacDocumentPath,
-                'registration_status' => 'email_verification_pending'
+                'registration_status' => BusinessRegistrationStatus::EMAIL_VERIFICATION_PENDING
             ]);
 
             // Process director's ID document
@@ -177,7 +180,7 @@ class BusinessController extends Controller
                 'director_name' => $validated['directorName'],
                 'director_phone' => $validated['directorPhone'],
                 'director_email' => $validated['directorEmail'],
-                'director_id_type' => $validated['idType'],
+                'director_id_type' => DirectorIdType::from($validated['idType']),
                 'director_id_number' => $validated['idNumber'],
                 'director_id_path' => $directorIdPath,
             ]);
@@ -231,7 +234,7 @@ class BusinessController extends Controller
 
         // Update registration status to completed but unverified
         $business->update([
-            'registration_status' => 'completed_unverified'
+            'registration_status' => BusinessRegistrationStatus::COMPLETED_UNVERIFIED
         ]);
 
         return redirect()->route('dashboard')
@@ -249,7 +252,7 @@ class BusinessController extends Controller
         }
 
         $business->markAsVerified();
-        $business->update(['registration_status' => 'verified']);
+        $business->update(['registration_status' => BusinessRegistrationStatus::VERIFIED]);
 
         return back()->with('success', 'Business verified successfully!');
     }
@@ -265,7 +268,7 @@ class BusinessController extends Controller
         }
 
         $business->markAsUnverified();
-        $business->update(['registration_status' => 'completed_unverified']);
+        $business->update(['registration_status' => BusinessRegistrationStatus::COMPLETED_UNVERIFIED]);
 
         return back()->with('success', 'Business verification removed successfully!');
     }

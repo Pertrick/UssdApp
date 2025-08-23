@@ -59,6 +59,9 @@ class USSDController extends Controller
             'is_active' => true,
         ]);
 
+        // Create default root flow for USSD
+        $ussd->createDefaultRootFlow();
+
         // Log the activity
         ActivityService::logUSSDCreated(Auth::id(), $ussd->id, $ussd->name);
 
@@ -76,8 +79,11 @@ class USSDController extends Controller
             abort(403);
         }
 
+        // Ensure USSD has a root flow
+        $ussd->ensureRootFlow();
+
         return Inertia::render('USSD/Show', [
-            'ussd' => $ussd->load('business')
+            'ussd' => $ussd->load(['business', 'flows.options'])
         ]);
     }
 
@@ -171,6 +177,9 @@ class USSDController extends Controller
             abort(403);
         }
 
+        // Ensure USSD has a root flow
+        $ussd->ensureRootFlow();
+
         return Inertia::render('USSD/Configure', [
             'ussd' => $ussd->load(['flows' => function($query) {
                 $query->with('options')->orderBy('sort_order');
@@ -188,8 +197,11 @@ class USSDController extends Controller
             abort(403);
         }
 
+        // Ensure USSD has a root flow
+        $ussd->ensureRootFlow();
+
         return Inertia::render('USSD/Simulator', [
-            'ussd' => $ussd->load('business')
+            'ussd' => $ussd->load(['business', 'flows.options'])
         ]);
     }
 
