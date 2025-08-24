@@ -92,6 +92,7 @@ class USSDSessionService
                 return [
                     'success' => false,
                     'message' => $errorMessage,
+                    'flow_title' => $currentFlow->title,
                     'requires_input' => true,
                     'current_flow' => $currentFlow,
                 ];
@@ -124,6 +125,7 @@ class USSDSessionService
             return [
                 'success' => false,
                 'message' => $errorMessage,
+                'flow_title' => $currentFlow->title,
                 'requires_input' => true,
                 'current_flow' => $currentFlow,
             ];
@@ -198,6 +200,7 @@ class USSDSessionService
         return [
             'success' => true,
             'message' => $nextFlow->menu_text,
+            'flow_title' => $nextFlow->title,
             'requires_input' => true,
             'current_flow' => $nextFlow,
             'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -269,7 +272,7 @@ class USSDSessionService
     private function handleInputRequest(USSDSession $session, USSDFlowOption $option): array
     {
         $actionData = $option->action_data ?? [];
-        $prompt = $actionData['prompt'] ?? 'Please enter your input:';
+        $prompt = $actionData['prompt'] ?? $this->getDefaultPrompt($option->action_type, $option->option_text);
         
         // Set session to input collection mode
         $sessionData = $session->session_data ?? [];
@@ -285,6 +288,7 @@ class USSDSessionService
         return [
             'success' => true,
             'message' => $prompt,
+            'flow_title' => $session->currentFlow->title,
             'requires_input' => true,
             'current_flow' => $session->currentFlow,
             'input_type' => $option->action_type,
@@ -442,6 +446,7 @@ class USSDSessionService
             return [
                 'success' => false,
                 'message' => $validationResult['error_message'] . "\n\n" . $inputPrompt,
+                'flow_title' => $session->currentFlow->title,
                 'requires_input' => true,
                 'current_flow' => $session->currentFlow,
             ];
@@ -461,10 +466,22 @@ class USSDSessionService
         // Log the input collection
         $this->logSessionAction($session, 'input_collected', $input, "Collected $inputType: $input");
 
-        // Check if there's a next flow to navigate to
+        // Check if there's a next flow to navigate to or if we should end session
         $nextFlowId = $sessionData['next_flow_after_input'] ?? null;
+        $endSessionAfterInput = $actionData['end_session_after_input'] ?? false;
         
-        if ($nextFlowId) {
+        if ($endSessionAfterInput) {
+            // End session after input collection
+            $session->update(['status' => 'completed']);
+            $successMessage = $actionData['success_message'] ?? "✓ Data saved successfully!\n\nThank you for using our service.";
+            
+            return [
+                'success' => true,
+                'message' => $successMessage,
+                'requires_input' => false,
+                'session_ended' => true,
+            ];
+        } elseif ($nextFlowId) {
             $nextFlow = USSDFlow::find($nextFlowId);
             if ($nextFlow && $nextFlow->is_active) {
                 $session->update(['current_flow_id' => $nextFlow->id]);
@@ -474,6 +491,7 @@ class USSDSessionService
                 return [
                     'success' => true,
                     'message' => $nextFlow->menu_text,
+                    'flow_title' => $nextFlow->title,
                     'requires_input' => true,
                     'current_flow' => $nextFlow,
                     'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -483,11 +501,12 @@ class USSDSessionService
 
         // If no next flow specified, return to current flow with success message
         $currentFlow = $session->currentFlow;
-        $successMessage = $actionData['success_message'] ?? "Data saved successfully!\n\n" . $currentFlow->menu_text;
+        $successMessage = $actionData['success_message'] ?? "✓ Data saved successfully!\n\n" . $currentFlow->menu_text;
         
         return [
             'success' => true,
             'message' => $successMessage,
+            'flow_title' => $currentFlow->title,
             'requires_input' => true,
             'current_flow' => $currentFlow,
             'options' => $currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -1005,5 +1024,30 @@ class USSDSessionService
         }
         
         return implode("\n", $recommendations);
+    }
+
+    /**
+     * Get default prompt based on input type
+     */
+    private function getDefaultPrompt(string $inputType, string $optionText): string
+    {
+        switch ($inputType) {
+            case 'input_text':
+                return "Please enter your " . strtolower($optionText) . ":";
+            case 'input_number':
+                return "Please enter a number:";
+            case 'input_phone':
+                return "Please enter your phone number:";
+            case 'input_account':
+                return "Please enter your account number:";
+            case 'input_pin':
+                return "Please enter your PIN:";
+            case 'input_amount':
+                return "Please enter the amount:";
+            case 'input_selection':
+                return "Please make your selection:";
+            default:
+                return "Please enter your input:";
+        }
     }
 }

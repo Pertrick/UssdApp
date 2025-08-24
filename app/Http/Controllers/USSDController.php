@@ -210,19 +210,8 @@ class USSDController extends Controller
      */
     public function storeFlow(Request $request, USSD $ussd)
     {
-        // Debug logging
-        \Log::info('storeFlow method called', [
-            'ussd_id' => $ussd->id,
-            'user_id' => Auth::id(),
-            'request_data' => $request->all()
-        ]);
-
         // Ensure the USSD belongs to the authenticated user
         if ($ussd->user_id !== Auth::id()) {
-            \Log::warning('Unauthorized access attempt', [
-                'ussd_user_id' => $ussd->user_id,
-                'auth_user_id' => Auth::id()
-            ]);
             return response()->json([
                 'success' => false,
                 'errors' => ['general' => 'Unauthorized access']
@@ -232,12 +221,14 @@ class USSDController extends Controller
         try {
             $validated = $request->validate([
                 'name' => 'required|string|max:255|min:2',
+                'title' => 'nullable|string|max:255',
                 'menu_text' => 'required|string|max:1000|min:5',
                 'description' => 'nullable|string|max:500',
             ], [
                 'name.required' => 'Flow name is required.',
                 'name.min' => 'Flow name must be at least 2 characters.',
                 'name.max' => 'Flow name cannot exceed 255 characters.',
+                'title.max' => 'Title cannot exceed 255 characters.',
                 'menu_text.required' => 'Menu text is required.',
                 'menu_text.min' => 'Menu text must be at least 5 characters.',
                 'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
@@ -253,16 +244,19 @@ class USSDController extends Controller
                 ], 422);
             }
 
+            // Create the flow
             $flow = $ussd->flows()->create([
                 'name' => $validated['name'],
+                'title' => $validated['title'] ?? null,
                 'menu_text' => $validated['menu_text'],
                 'description' => $validated['description'] ?? '',
                 'is_root' => false,
-                'is_active' => true,
                 'sort_order' => $ussd->flows()->count(),
+                'is_active' => true,
             ]);
 
-            \Log::info('Flow created successfully', ['flow_id' => $flow->id]);
+            // Parse menu_text to create initial options
+            $flow->parseMenuTextToOptions();
 
             return response()->json([
                 'success' => true,
@@ -271,24 +265,14 @@ class USSDController extends Controller
             ]);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::warning('Validation failed in storeFlow', [
-                'errors' => $e->errors()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'errors' => $e->errors()
             ], 422);
-
         } catch (\Exception $e) {
-            \Log::error('Error in storeFlow method', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
-                'errors' => ['general' => 'An error occurred while creating the flow: ' . $e->getMessage()]
+                'errors' => ['general' => 'An error occurred while creating the flow.']
             ], 500);
         }
     }
@@ -310,6 +294,7 @@ class USSDController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255|min:2',
+            'title' => 'nullable|string|max:255',
             'menu_text' => 'required|string|max:1000|min:5',
             'description' => 'nullable|string|max:500',
             'options' => 'array',
@@ -318,9 +303,10 @@ class USSDController extends Controller
             'options.*.action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'options.*.action_data' => 'nullable|array',
             'options.*.action_data.message' => 'required_if:options.*.action_type,message|string|max:500',
-            'options.*.action_data.prompt' => 'required_if:options.*.action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'options.*.action_data.error_message' => 'required_if:options.*.action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'options.*.next_flow_id' => 'nullable|exists:ussd_flows,id',
+            'options.*.action_data.prompt' => 'nullable|string|max:200',
+            'options.*.action_data.error_message' => 'nullable|string|max:200',
+            'options.*.action_data.success_message' => 'nullable|string|max:500',
+            'options.*.next_flow_id' => 'nullable',
         ], [
             'name.required' => 'Flow name is required.',
             'name.min' => 'Flow name must be at least 2 characters.',
@@ -339,9 +325,7 @@ class USSDController extends Controller
             'options.*.action_type.in' => 'Invalid action type.',
             'options.*.action_data.message.required_if' => 'Message is required when action type is message.',
             'options.*.action_data.message.max' => 'Message cannot exceed 500 characters.',
-            'options.*.action_data.prompt.required_if' => 'Prompt is required for input types.',
             'options.*.action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
-            'options.*.action_data.error_message.required_if' => 'Error message is required for input types.',
             'options.*.action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'options.*.next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
@@ -355,17 +339,19 @@ class USSDController extends Controller
             ], 422);
         }
 
+        // Update basic flow information
         $flow->update([
             'name' => $validated['name'],
+            'title' => $validated['title'] ?? null,
             'menu_text' => $validated['menu_text'],
             'description' => $validated['description'] ?? '',
         ]);
 
-        // Handle options
+        // Handle options if provided
         if (isset($validated['options'])) {
-            // Validate that all next_flow_id values belong to the same USSD
+            // Validate that all next_flow_id values belong to the same USSD (except special values)
             foreach ($validated['options'] as $optionData) {
-                if (isset($optionData['next_flow_id']) && $optionData['next_flow_id']) {
+                if (isset($optionData['next_flow_id']) && $optionData['next_flow_id'] && $optionData['next_flow_id'] !== 'end_session') {
                     $nextFlow = $ussd->flows()->find($optionData['next_flow_id']);
                     if (!$nextFlow) {
                         return response()->json([
@@ -379,24 +365,41 @@ class USSDController extends Controller
             // Delete existing options
             $flow->options()->delete();
             
-            // Create new options
-            foreach ($validated['options'] as $optionData) {
-                $flow->options()->create([
-                    'option_text' => $optionData['option_text'],
-                    'option_value' => $optionData['option_value'],
-                    'action_type' => $optionData['action_type'],
-                    'action_data' => $optionData['action_data'] ?? null,
-                    'next_flow_id' => $optionData['next_flow_id'] ?? null,
-                    'requires_input' => false,
-                    'sort_order' => 0,
-                    'is_active' => true,
-                ]);
-            }
+                         // Create new options
+             foreach ($validated['options'] as $index => $optionData) {
+                 // Handle special "end_session" case
+                 $nextFlowId = null;
+                 $actionData = $optionData['action_data'] ?? [];
+                 
+                 if ($optionData['next_flow_id'] === 'end_session') {
+                     // Store end_session flag in action_data instead of next_flow_id
+                     $actionData['end_session_after_input'] = true;
+                 } else {
+                     $nextFlowId = $optionData['next_flow_id'] ?? null;
+                 }
+                 
+                 $flow->options()->create([
+                     'option_text' => $optionData['option_text'],
+                     'option_value' => $optionData['option_value'],
+                     'action_type' => $optionData['action_type'],
+                     'action_data' => $actionData,
+                     'next_flow_id' => $nextFlowId,
+                     'requires_input' => false,
+                     'sort_order' => $index + 1,
+                     'is_active' => true,
+                 ]);
+             }
+            
+            // Update menu_text to match the new options
+            $flow->updateMenuTextFromOptions();
         }
+
+        // Reload the flow with options
+        $flow->load('options');
 
         return response()->json([
             'success' => true,
-            'flow' => $flow->load('options'),
+            'flow' => $flow,
             'message' => 'Flow updated successfully!'
         ]);
     }
@@ -453,9 +456,10 @@ class USSDController extends Controller
             'action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'action_data' => 'nullable|array',
             'action_data.message' => 'required_if:action_type,message|string|max:500',
-            'action_data.prompt' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'action_data.error_message' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'next_flow_id' => 'nullable|exists:ussd_flows,id',
+            'action_data.prompt' => 'nullable|string|max:200',
+            'action_data.error_message' => 'nullable|string|max:200',
+            'action_data.success_message' => 'nullable|string|max:500',
+            'next_flow_id' => 'nullable',
         ], [
             'option_text.required' => 'Option text is required.',
             'option_text.min' => 'Option text must be at least 1 character.',
@@ -467,15 +471,13 @@ class USSDController extends Controller
             'action_type.in' => 'Invalid action type.',
             'action_data.message.required_if' => 'Message is required when action type is message.',
             'action_data.message.max' => 'Message cannot exceed 500 characters.',
-            'action_data.prompt.required_if' => 'Prompt is required for input types.',
             'action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
-            'action_data.error_message.required_if' => 'Error message is required for input types.',
             'action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 
-        // Validate that next_flow_id belongs to the same USSD if provided
-        if ($validated['next_flow_id']) {
+        // Validate that next_flow_id belongs to the same USSD if provided (except special values)
+        if ($validated['next_flow_id'] && $validated['next_flow_id'] !== 'end_session') {
             $nextFlow = $ussd->flows()->find($validated['next_flow_id']);
             if (!$nextFlow) {
                 return response()->json([
@@ -538,9 +540,10 @@ class USSDController extends Controller
             'action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'action_data' => 'nullable|array',
             'action_data.message' => 'required_if:action_type,message|string|max:500',
-            'action_data.prompt' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'action_data.error_message' => 'required_if:action_type,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection|string|max:200',
-            'next_flow_id' => 'nullable|exists:ussd_flows,id',
+            'action_data.prompt' => 'nullable|string|max:200',
+            'action_data.error_message' => 'nullable|string|max:200',
+            'action_data.success_message' => 'nullable|string|max:500',
+            'next_flow_id' => 'nullable',
         ], [
             'option_text.required' => 'Option text is required.',
             'option_text.min' => 'Option text must be at least 1 character.',
@@ -559,8 +562,8 @@ class USSDController extends Controller
             'next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 
-        // Validate that next_flow_id belongs to the same USSD if provided
-        if ($validated['next_flow_id']) {
+        // Validate that next_flow_id belongs to the same USSD if provided (except special values)
+        if ($validated['next_flow_id'] && $validated['next_flow_id'] !== 'end_session') {
             $nextFlow = $ussd->flows()->find($validated['next_flow_id']);
             if (!$nextFlow) {
                 return response()->json([
@@ -616,8 +619,12 @@ class USSDController extends Controller
 
         $option->delete();
 
+        // Update menu_text to reflect the deleted option
+        $flow->updateMenuTextFromOptions();
+
         return response()->json([
             'success' => true,
+            'flow' => $flow->load('options'),
             'message' => 'Option deleted successfully!'
         ]);
     }

@@ -42,6 +42,7 @@ class USSDSimulatorController extends Controller
             'success' => true,
             'session_id' => $session->session_id,
             'menu_text' => $session->currentFlow->menu_text,
+            'flow_title' => $session->currentFlow->title,
             'current_flow_id' => $session->current_flow_id,
             'options' => $session->currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
         ]);

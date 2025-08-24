@@ -92,8 +92,9 @@ class USSD extends Model
     {
         $rootFlow = $this->flows()->create([
             'name' => 'Main Menu',
+            'title' => "Welcome to {$this->name}",
             'description' => 'Main menu for ' . $this->name,
-            'menu_text' => "Welcome to {$this->name}\n\n1. Option 1\n2. Option 2\n3. Option 3\n0. Exit",
+            'menu_text' => "1. Option 1\n2. Option 2\n3. Option 3\n0. Exit",
             'is_root' => true,
             'parent_flow_id' => null,
             'sort_order' => 1,

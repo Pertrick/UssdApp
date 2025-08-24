@@ -45,7 +45,10 @@
             <div class="bg-gray-100 rounded-xl p-4 min-h-[180px] flex flex-col justify-between">
               <div class="text-gray-900 whitespace-pre-line min-h-[100px]">
                 <span v-if="!sessionStarted">Enter your phone number to start simulation.</span>
-                <span v-else>{{ menuText }}</span>
+                <span v-else>
+                  <div v-if="currentFlowTitle" class="font-semibold mb-1">{{ currentFlowTitle }}</div>
+                  {{ menuText }}
+                </span>
               </div>
               <div v-if="errorMessage" class="text-xs text-red-600 mt-2">{{ errorMessage }}</div>
               <div v-if="sessionEnded" class="text-green-600 font-semibold mt-2">Session Ended</div>
@@ -147,6 +150,7 @@ const sessionStarted = ref(false);
 const sessionEnded = ref(false);
 const sessionId = ref('');
 const menuText = ref('');
+const currentFlowTitle = ref('');
 const userInput = ref('');
 const errorMessage = ref('');
 const loading = ref(false);
@@ -184,6 +188,7 @@ function resetSimulator() {
   sessionEnded.value = false;
   sessionId.value = '';
   menuText.value = '';
+  currentFlowTitle.value = '';
   userInput.value = '';
   errorMessage.value = '';
   logs.value = [];
@@ -251,6 +256,7 @@ async function startSession() {
       sessionEnded.value = false;
       sessionId.value = data.session_id;
       menuText.value = data.menu_text;
+      currentFlowTitle.value = data.flow_title || '';
       userInput.value = '';
       
       // Set initial input type and UI
@@ -285,6 +291,7 @@ async function sendInput() {
     const data = await res.json();
     if (data.success) {
       menuText.value = data.message;
+      currentFlowTitle.value = data.flow_title || '';
       userInput.value = '';
       
       // Update input type and UI based on response
