@@ -6,6 +6,7 @@ defineProps({
     user: Object,
     business: Object,
     ussdStats: Object,
+    performanceStats: Object,
     recentActivities: Array,
 
 });
@@ -253,7 +254,7 @@ const logout = () => {
                                         </div>
                                         <div class="ml-2">
                                             <p class="text-xs font-medium text-gray-600">Success Rate</p>
-                                            <p class="text-sm font-bold text-gray-900">98.5%</p>
+                                            <p class="text-sm font-bold text-gray-900">{{ performanceStats?.success_rate ?? 0 }}%</p>
                                         </div>
                                     </div>
                                 </div>
@@ -267,7 +268,7 @@ const logout = () => {
                                         </div>
                                         <div class="ml-2">
                                             <p class="text-xs font-medium text-gray-600">Avg Response</p>
-                                            <p class="text-sm font-bold text-gray-900">1.2s</p>
+                                            <p class="text-sm font-bold text-gray-900">{{ performanceStats?.avg_response_time ?? 0 }}s</p>
                                         </div>
                                     </div>
                                 </div>
