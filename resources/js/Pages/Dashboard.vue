@@ -55,7 +55,7 @@ const logout = () => {
         <div class="py-8">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <!-- Welcome Section -->
-                <div class="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-xl mb-8">
+                <div class="bg-green-900 rounded-2xl shadow-xl mb-8">
                     <div class="px-8 py-12">
                         <div class="flex items-center justify-between">
                             <div class="text-white">
@@ -224,7 +224,7 @@ const logout = () => {
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-lg font-semibold text-gray-900">Analytics & Insights</h3>
-                            <button class="text-sm text-blue-600 hover:text-blue-700 font-medium">View Details</button>
+                            <a :href="route('analytics.dashboard')" class="text-sm text-blue-600 hover:text-blue-700 font-medium">View Details</a>
                         </div>
                         
                         <div class="space-y-4">

@@ -90,4 +90,28 @@ class ActivityService
             ['business_name' => $businessName]
         );
     }
+
+    public static function logUSSDLive($userId, $ussdId, $ussdName)
+    {
+        return self::log(
+            $userId,
+            'ussd_live',
+            "USSD service went live: {$ussdName}",
+            'App\Models\USSD',
+            $ussdId,
+            ['ussd_name' => $ussdName]
+        );
+    }
+
+    public static function logUSSDTesting($userId, $ussdId, $ussdName)
+    {
+        return self::log(
+            $userId,
+            'ussd_testing',
+            "USSD service switched to testing: {$ussdName}",
+            'App\Models\USSD',
+            $ussdId,
+            ['ussd_name' => $ussdName]
+        );
+    }
 } 

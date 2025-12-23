@@ -25,7 +25,6 @@ class USSDFlowOption extends Model
     ];
 
     protected $casts = [
-        'action_data' => 'array',
         'requires_input' => 'boolean',
         'is_active' => 'boolean',
     ];
@@ -38,5 +37,36 @@ class USSDFlowOption extends Model
     public function nextFlow(): BelongsTo
     {
         return $this->belongsTo(USSDFlow::class, 'next_flow_id');
+    }
+
+    /**
+     * Get the action_data attribute as an object (not array)
+     */
+    public function getActionDataAttribute($value)
+    {
+        if (is_null($value)) {
+            return [];
+        }
+        
+        $decoded = json_decode($value, true);
+        
+        // Ensure we always return an object, not an array
+        if (is_array($decoded)) {
+            return (object) $decoded;
+        }
+        
+        return $decoded ?: [];
+    }
+
+    /**
+     * Set the action_data attribute
+     */
+    public function setActionDataAttribute($value)
+    {
+        if (is_null($value)) {
+            $this->attributes['action_data'] = null;
+        } else {
+            $this->attributes['action_data'] = json_encode($value);
+        }
     }
 }

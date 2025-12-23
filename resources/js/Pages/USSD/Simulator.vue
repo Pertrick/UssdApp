@@ -17,7 +17,21 @@
           <h2 class="text-2xl font-bold text-gray-900">USSD Simulator</h2>
         </div>
         <div class="flex items-center space-x-3">
-          <span class="text-sm text-gray-500">Service: {{ ussd.name }} ({{ ussd.pattern }})</span>
+          <span class="text-sm text-gray-500">Service: {{ ussd.name }} ({{ getCurrentUssdCode() }})</span>
+          
+          <!-- Environment Indicator (Read-only) -->
+          <div class="flex items-center space-x-2">
+            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span :class="getEnvironmentBadgeClass()" class="px-3 py-1 text-xs font-semibold rounded-full shadow-sm">
+              {{ getEnvironmentLabel() }}
+            </span>
+            <span class="text-xs text-gray-500">
+              ({{ environment === 'production' ? 'Live' : 'Testing' }})
+            </span>
+          </div>
+          
           <button
             @click="showCloseModal = true"
             class="inline-flex items-center px-3 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
@@ -39,15 +53,20 @@
             <!-- Phone header -->
             <div class="flex items-center justify-between text-xs text-gray-300 mb-2">
               <span>MTN Nigeria</span>
-              <span>{{ new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+              <div class="flex items-center space-x-2">
+                <span :class="getEnvironmentBadgeClass()" class="px-2 py-1 rounded text-xs font-medium">
+                  {{ getEnvironmentLabel() }}
+                </span>
+                <span>{{ new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+              </div>
             </div>
             <!-- USSD Screen -->
             <div class="bg-gray-100 rounded-xl p-4 min-h-[180px] flex flex-col justify-between">
-              <div class="text-gray-900 whitespace-pre-line min-h-[100px]">
-                <span v-if="!sessionStarted">Enter your phone number to start simulation.</span>
+              <div class="text-gray-900 whitespace-pre-line min-h-[100px] text-sm">
+                <span v-if="!sessionStarted" class="text-xs">Enter your phone number to start simulation.</span>
                 <span v-else>
-                  <div v-if="currentFlowTitle" class="font-semibold mb-1">{{ currentFlowTitle }}</div>
-                  {{ menuText }}
+                  <div v-if="currentFlowTitle" class="font-semibold mb-1 text-xs">{{ currentFlowTitle }}</div>
+                  <div class="text-xs leading-relaxed">{{ menuText }}</div>
                 </span>
               </div>
               <div v-if="errorMessage" class="text-xs text-red-600 mt-2">{{ errorMessage }}</div>
@@ -55,19 +74,26 @@
             </div>
             <!-- Input/Keypad -->
             <div v-if="!sessionStarted" class="mt-4">
-              <input v-model="phoneNumber" type="text" maxlength="15" placeholder="Phone Number" class="w-full px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" />
-              <button @click="startSession" :disabled="loading || !phoneNumber" class="w-full mt-2 py-2 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50">Start Simulation</button>
+              <form @submit.prevent="startSession">
+                <input v-model="phoneNumber" type="text" maxlength="15" placeholder="Phone Number" class="w-full px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" required />
+                <button type="submit" :disabled="loading || !phoneNumber" class="w-full mt-2 py-2 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50">Start Simulation</button>
+              </form>
             </div>
             <div v-else-if="!sessionEnded" class="mt-4">
               <div class="flex gap-2 mb-2">
-                <input 
-                  v-model="userInput" 
-                  @keyup.enter="sendInput" 
-                  type="text" 
-                  :maxlength="inputMaxLength" 
-                  :placeholder="inputPlaceholder" 
-                  class="flex-1 px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" 
-                />
+                <div class="flex-1">
+                  <input 
+                    v-model="userInput" 
+                    @keyup.enter="sendInput" 
+                    type="text" 
+                    :maxlength="inputMaxLength" 
+                    :placeholder="inputPlaceholder" 
+                    class="w-full px-3 py-2 rounded border border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                  <div class="text-xs text-gray-500 mt-1">
+                    Type: {{ currentInputType }} | Max: {{ inputMaxLength }} chars
+                  </div>
+                </div>
                 <button @click="sendInput" :disabled="loading || !userInput" class="px-4 py-2 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50">Send</button>
               </div>
               <!-- Keypad - only show for numeric input or when collecting numeric data -->
@@ -102,12 +128,51 @@
           <div v-if="!sessionStarted" class="text-gray-400">No session started yet.</div>
           <div v-else>
             <div class="mb-2 text-xs text-gray-500">Session ID: <span class="font-mono">{{ sessionId }}</span></div>
-            <div class="space-y-2 max-h-[500px] overflow-y-auto">
+            
+            <!-- API Call Status -->
+            <div v-if="apiCallInProgress" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div class="flex items-center gap-2">
+                <svg class="animate-spin h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-sm font-medium text-blue-800">Processing API call...</span>
+              </div>
+              <div class="text-xs text-blue-600 mt-1">{{ apiCallStatus }}</div>
+            </div>
+            
+            <!-- API Call Result -->
+            <div v-if="lastApiResult" class="mb-4 p-3 rounded-lg" :class="lastApiResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+              <div class="flex items-center gap-2 mb-2">
+                <svg v-if="lastApiResult.success" class="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                <svg v-else class="h-4 w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+                <span class="text-sm font-medium" :class="lastApiResult.success ? 'text-green-800' : 'text-red-800'">
+                  API Call {{ lastApiResult.success ? 'Successful' : 'Failed' }}
+                </span>
+                <span v-if="lastApiResult.simulated" class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">SIMULATED</span>
+                <span v-else-if="environment === 'testing'" class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">TESTING</span>
+                <span v-else-if="environment === 'production'" class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">LIVE</span>
+              </div>
+              <div class="text-xs" :class="lastApiResult.success ? 'text-green-700' : 'text-red-700'">
+                {{ lastApiResult.message }}
+              </div>
+              <div v-if="lastApiResult.data && lastApiResult.data.transaction_id" class="text-xs text-gray-600 mt-1">
+                Transaction ID: {{ lastApiResult.data.transaction_id }}
+              </div>
+            </div>
+            
+            <div class="space-y-2 max-h-[400px] overflow-y-auto">
               <div v-for="log in logs" :key="log.id" class="border-b pb-2 mb-2">
                 <div class="flex items-center gap-2 text-xs">
                   <span class="font-semibold text-indigo-700">{{ log.action_type }}</span>
                   <span class="text-gray-400">{{ log.action_timestamp }}</span>
                   <span v-if="log.status === 'error'" class="text-red-600">Error</span>
+                  <span v-if="log.action_type === 'api_call_success'" class="text-green-600">API Success</span>
+                  <span v-if="log.action_type === 'api_call_error'" class="text-red-600">API Error</span>
                 </div>
                 <div v-if="log.input_data" class="text-xs text-gray-700">Input: {{ log.input_data }}</div>
                 <div v-if="log.output_data" class="text-xs text-gray-900">Output: <span class="whitespace-pre-line">{{ log.output_data }}</span></div>
@@ -145,6 +210,7 @@ const props = defineProps({
   logs: Array,
 });
 
+
 const phoneNumber = ref('0700000000');
 const sessionStarted = ref(false);
 const sessionEnded = ref(false);
@@ -160,11 +226,15 @@ const keypadKeys = ['1','2','3','4','5','6','7','8','9','*','0','#'];
 const currentInput = ref('');
 const sessionHistory = ref([]);
 const isSessionActive = ref(false);
-const environment = ref('simulation'); // simulation, sandbox, live
+// Use USSD's current environment (testing by default, production when live)
+const environment = ref(props.ussd.environment?.name || 'testing')
 const inputMaxLength = ref(10);
 const inputPlaceholder = ref('Enter option...');
 const showKeypad = ref(false);
 const currentInputType = ref('menu'); // menu, text, number, phone, account, pin, amount
+const apiCallInProgress = ref(false);
+const apiCallStatus = ref('');
+const lastApiResult = ref(null);
 
 const closeModalMessage = computed(() => {
   if (sessionStarted.value && !sessionEnded.value) {
@@ -189,6 +259,7 @@ function resetSimulator() {
   sessionId.value = '';
   menuText.value = '';
   currentFlowTitle.value = '';
+  environment.value = props.ussd.environment?.name || 'testing';
   userInput.value = '';
   errorMessage.value = '';
   logs.value = [];
@@ -197,6 +268,9 @@ function resetSimulator() {
   inputPlaceholder.value = 'Enter option...';
   showKeypad.value = false;
   currentInputType.value = 'menu';
+  apiCallInProgress.value = false;
+  apiCallStatus.value = '';
+  lastApiResult.value = null;
 }
 
 function handleCloseSimulation() {
@@ -204,18 +278,35 @@ function handleCloseSimulation() {
   showCloseModal.value = false;
 }
 
+// Environment-related functions
+function getCurrentUssdCode() {
+  // Use the current USSD code based on environment
+  if (environment.value === 'production') {
+    return props.ussd.live_ussd_code || 'Not configured'
+  }
+  return props.ussd.testing_ussd_code || props.ussd.pattern || 'Not configured'
+}
+
+function getEnvironmentLabel() {
+  const labels = {
+    testing: 'TEST',
+    production: 'LIVE'
+  };
+  return labels[environment.value] || 'TEST';
+}
+
+function getEnvironmentBadgeClass() {
+  const classes = {
+    testing: 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+    production: 'bg-green-100 text-green-800 border border-green-200'
+  };
+  return classes[environment.value] || 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+}
+
+// Simplified CSRF token handling using Inertia
 function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
-  if (!meta) {
-    console.error('CSRF token meta tag not found');
-    return '';
-  }
-  const token = meta.getAttribute('content');
-  if (!token) {
-    console.error('CSRF token content is empty');
-    return '';
-  }
-  return token;
+  return meta ? meta.getAttribute('content') : '';
 }
 
 async function startSession() {
@@ -223,11 +314,6 @@ async function startSession() {
   errorMessage.value = '';
   
   const csrfToken = getCsrfToken();
-  if (!csrfToken) {
-    errorMessage.value = 'CSRF token not available. Please refresh the page.';
-    loading.value = false;
-    return;
-  }
   
   try {
     const res = await fetch(route('ussd.simulator.start', { ussd: props.ussd.id }), {
@@ -236,21 +322,23 @@ async function startSession() {
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': csrfToken,
         'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
       },
       body: JSON.stringify({ phone_number: phoneNumber.value, environment: environment.value }),
     });
     
+    console.log('Response status:', res.status);
+    
     if (!res.ok) {
-      console.error('Response status:', res.status);
-      if (res.status === 419) {
-        errorMessage.value = 'CSRF token mismatch. Please refresh the page.';
-      } else {
-        errorMessage.value = `Server error: ${res.status}`;
-      }
+      const errorText = await res.text();
+      console.error('Error response:', errorText);
+      errorMessage.value = `Server error: ${res.status}`;
       return;
     }
     
     const data = await res.json();
+    console.log('Response data:', data);
+    
     if (data.success) {
       sessionStarted.value = true;
       sessionEnded.value = false;
@@ -268,7 +356,7 @@ async function startSession() {
       errorMessage.value = data.message || 'Failed to start session.';
     }
   } catch (e) {
-    console.error('Network error:', e);
+    console.error('Error:', e);
     errorMessage.value = 'Network error. Please check your connection.';
   } finally {
     loading.value = false;
@@ -279,20 +367,55 @@ async function sendInput() {
   if (!userInput.value) return;
   loading.value = true;
   errorMessage.value = '';
+  
+  // Check if this might be an API call (processing step)
+  const isProcessingStep = currentFlowTitle.value.toLowerCase().includes('processing') || 
+                          userInput.value === '*';
+  
+  if (isProcessingStep) {
+    apiCallInProgress.value = true;
+    apiCallStatus.value = 'Calling marketplace API...';
+    lastApiResult.value = null;
+  }
+  
+  const csrfToken = getCsrfToken();
+  console.log('CSRF Token for input:', csrfToken ? 'Present' : 'Missing');
+  
   try {
     const res = await fetch(route('ussd.simulator.input', { ussd: props.ussd.id }), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': getCsrfToken(),
+        'X-CSRF-TOKEN': csrfToken,
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
       },
       body: JSON.stringify({ session_id: sessionId.value, input: userInput.value, environment: environment.value }),
     });
+    
+    console.log('Input response status:', res.status);
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Input error response:', errorText);
+      errorMessage.value = `Server error: ${res.status}`;
+      return;
+    }
+    
     const data = await res.json();
+    console.log('Input response data:', data);
+    
     if (data.success) {
       menuText.value = data.message;
       currentFlowTitle.value = data.flow_title || '';
       userInput.value = '';
+      
+      // Check if this was an API call result
+      if (isProcessingStep) {
+        apiCallInProgress.value = false;
+        // The API result will be shown in the logs
+        fetchLogs();
+      }
       
       // Update input type and UI based on response
       if (data.input_type) {
@@ -308,10 +431,20 @@ async function sendInput() {
       }
     } else {
       errorMessage.value = data.message || 'Invalid input.';
+      if (isProcessingStep) {
+        apiCallInProgress.value = false;
+      }
     }
-    fetchLogs();
+    
+    if (!isProcessingStep) {
+      fetchLogs();
+    }
   } catch (e) {
+    console.error('Error:', e);
     errorMessage.value = 'Network error.';
+    if (isProcessingStep) {
+      apiCallInProgress.value = false;
+    }
   } finally {
     loading.value = false;
   }
@@ -328,7 +461,7 @@ function updateInputUI(inputType) {
       inputPlaceholder.value = 'Enter number...';
       break;
     case 'input_phone':
-      inputMaxLength.value = 15;
+      inputMaxLength.value = 20; // Increased to ensure 11 digits can be entered
       inputPlaceholder.value = 'Enter phone number...';
       break;
     case 'input_account':
@@ -360,6 +493,43 @@ async function fetchLogs() {
     const res = await fetch(route('ussd.simulator.logs', { ussd: props.ussd.id }) + `?session_id=${sessionId.value}`);
     const data = await res.json();
     logs.value = data.logs || [];
+    
+    // Extract API call results from logs
+    const apiLogs = logs.value.filter(log => 
+      log.action_type === 'api_call_success' || log.action_type === 'api_call_error'
+    );
+    
+    if (apiLogs.length > 0) {
+      const latestApiLog = apiLogs[apiLogs.length - 1];
+      if (latestApiLog.action_type === 'api_call_success') {
+        try {
+          const outputData = JSON.parse(latestApiLog.output_data || '{}');
+          lastApiResult.value = {
+            success: true,
+            message: outputData.message || 'API call successful',
+            data: outputData,
+            simulated: false, // Both testing and production make real API calls
+            environment: environment.value
+          };
+        } catch (e) {
+          lastApiResult.value = {
+            success: true,
+            message: 'API call successful',
+            data: {},
+            simulated: false, // Both testing and production make real API calls
+            environment: environment.value
+          };
+        }
+      } else if (latestApiLog.action_type === 'api_call_error') {
+        lastApiResult.value = {
+          success: false,
+          message: latestApiLog.error_message || 'API call failed',
+          data: {},
+          simulated: environment.value === 'simulation',
+          environment: environment.value
+        };
+      }
+    }
   } catch (e) {
     // ignore
   }
@@ -367,48 +537,30 @@ async function fetchLogs() {
 
 // Environment status
 const environmentStatus = computed(() => {
-  switch (environment.value) {
-    case 'simulation':
-      return {
-        label: 'Simulation Mode',
-        color: 'bg-blue-100 text-blue-800',
-        description: 'Testing flows locally - no real costs'
-      };
-    case 'sandbox':
-      return {
-        label: 'Sandbox Mode',
-        color: 'bg-yellow-100 text-yellow-800',
-        description: 'Testing with Africastalking sandbox'
-      };
-    case 'live':
-      return {
-        label: 'Live Mode',
-        color: 'bg-green-100 text-green-800',
-        description: 'Real USSD service - live environment'
-      };
-    default:
-      return {
-        label: 'Unknown',
-        color: 'bg-gray-100 text-gray-800',
-        description: 'Environment not configured'
-      };
+  if (environment.value === 'production') {
+    return {
+      label: 'Production Mode',
+      color: 'bg-green-100 text-green-800',
+      description: 'Real USSD service - live environment with real API calls'
+    };
   }
+  // Default to testing
+  return {
+    label: 'Testing Mode',
+    color: 'bg-yellow-100 text-yellow-800',
+    description: 'Testing environment with real API calls to sandbox/test endpoints'
+  };
 });
 
 // USSD Code display
 const ussdCode = computed(() => {
-  if (!props.ussd) return '*123#';
+  if (!props.ussd) return 'Not configured';
   
-  switch (environment.value) {
-    case 'simulation':
-      return props.ussd.testing_ussd_code || '*123#';
-    case 'sandbox':
-      return props.ussd.testing_ussd_code || '*123#';
-    case 'live':
-      return props.ussd.live_ussd_code || '*456#';
-    default:
-      return '*123#';
+  if (environment.value === 'production') {
+    return props.ussd.live_ussd_code || 'Not configured';
   }
+  // Default to testing
+  return props.ussd.testing_ussd_code || props.ussd.pattern || 'Not configured';
 });
 
 const resetSession = () => {
@@ -416,11 +568,6 @@ const resetSession = () => {
   isSessionActive.value = false;
   sessionHistory.value = [];
   currentInput.value = '';
-};
-
-const switchEnvironment = (newEnv) => {
-  environment.value = newEnv;
-  resetSession();
 };
 
 // Auto-scroll to bottom of chat
@@ -432,15 +579,11 @@ const scrollToBottom = () => {
 };
 
 onMounted(() => {
-  // Set environment based on USSD configuration
-  if (props.ussd) {
-    if (props.ussd.environment === 'live') {
-      environment.value = 'live';
-    } else if (props.ussd.environment === 'sandbox') {
-      environment.value = 'sandbox';
-    } else {
-      environment.value = 'simulation';
-    }
+  // Set environment based on USSD configuration (testing by default, production when live)
+  if (props.ussd && props.ussd.environment) {
+    environment.value = props.ussd.environment.name || 'testing';
+  } else {
+    environment.value = 'testing'; // Default to testing
   }
 });
 </script> 

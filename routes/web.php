@@ -11,60 +11,18 @@ use App\Http\Controllers\USSDSimulatorController;
 use App\Http\Controllers\ActivityController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\BillingController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\DynamicFlowController;
 
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
-        'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
-        'laravelVersion' => Application::VERSION,
-        'phpVersion' => PHP_VERSION,
+        'showAuth' => auth()->check()
     ]);
 })->name('welcome');
 
-// Test route to debug redirect issue
-Route::get('/test-register', function () {
-    return response()->json([
-        'message' => 'Test route working',
-        'auth_check' => auth()->check(),
-        'user_id' => auth()->id(),
-        'session_id' => session()->getId()
-    ]);
-})->name('test.register');
-
-// Test route for USSD flow management
-Route::get('/test-ussd-flows', function () {
-    return response()->json([
-        'message' => 'USSD Flow routes are accessible',
-        'routes' => [
-            'store_flow' => route('ussd.flows.store', ['ussd' => 1]),
-            'update_flow' => route('ussd.flows.update', ['ussd' => 1, 'flow' => 1]),
-            'delete_flow' => route('ussd.flows.destroy', ['ussd' => 1, 'flow' => 1]),
-            'store_option' => route('ussd.flows.options.store', ['ussd' => 1, 'flow' => 1]),
-            'update_option' => route('ussd.flows.options.update', ['ussd' => 1, 'flow' => 1, 'option' => 1]),
-            'delete_option' => route('ussd.flows.options.destroy', ['ussd' => 1, 'flow' => 1, 'option' => 1]),
-        ]
-    ]);
-})->name('test.ussd.flows');
-
-// Test route for authentication and USSD access
-Route::get('/test-ussd-auth', function () {
-    return response()->json([
-        'authenticated' => \Illuminate\Support\Facades\Auth::check(),
-        'user_id' => \Illuminate\Support\Facades\Auth::id(),
-        'ussd_count' => \Illuminate\Support\Facades\Auth::check() ? \Illuminate\Support\Facades\Auth::user()->ussds()->count() : 0,
-        'first_ussd' => \Illuminate\Support\Facades\Auth::check() ? \Illuminate\Support\Facades\Auth::user()->ussds()->first() : null,
-    ]);
-})->middleware(['auth'])->name('test.ussd.auth');
-
-// Simple test route for flow creation
-Route::post('/test-create-flow', function (Request $request) {
-    return response()->json([
-        'success' => true,
-        'message' => 'Test route working',
-        'data' => $request->all()
-    ]);
-})->middleware(['auth'])->name('test.create.flow');
 
 Route::get('/dashboard', [Controller::class, 'dashboard'])->middleware(['auth'])->name('dashboard');
 
@@ -123,6 +81,18 @@ Route::middleware(['auth', 'verified.business'])->group(function () {
     Route::patch('/ussd/{ussd}/toggle-status', [USSDController::class, 'toggleStatus'])->name('ussd.toggle-status');
     Route::get('/ussd/{ussd}/configure', [USSDController::class, 'configure'])->name('ussd.configure');
     
+    // Integration Routes
+    Route::get('/integration', [IntegrationController::class, 'index'])->name('integration.index');
+    Route::get('/integration/marketplace', [IntegrationController::class, 'marketplace'])->name('integration.marketplace');
+    Route::get('/integration/create', [IntegrationController::class, 'create'])->name('integration.create');
+    Route::post('/integration', [IntegrationController::class, 'store'])->name('integration.store');
+    Route::get('/integration/{apiConfig}', [IntegrationController::class, 'show'])->name('integration.show');
+    Route::get('/integration/{apiConfig}/edit', [IntegrationController::class, 'edit'])->name('integration.edit');
+    Route::put('/integration/{apiConfig}', [IntegrationController::class, 'update'])->name('integration.update');
+    Route::delete('/integration/{apiConfig}', [IntegrationController::class, 'destroy'])->name('integration.destroy');
+    Route::post('/integration/{apiConfig}/test', [IntegrationController::class, 'test'])->name('integration.test');
+    Route::post('/integration/marketplace/add', [IntegrationController::class, 'addMarketplaceApi'])->name('integration.marketplace.add');
+    
     // USSD Flow Management Routes
     Route::post('/ussd/{ussd}/flows', [USSDController::class, 'storeFlow'])->name('ussd.flows.store');
     Route::put('/ussd/{ussd}/flows/{flow}', [USSDController::class, 'updateFlow'])->name('ussd.flows.update');
@@ -136,6 +106,43 @@ Route::middleware(['auth', 'verified.business'])->group(function () {
     Route::post('/ussd/{ussd}/simulator/input', [USSDSimulatorController::class, 'processInput'])->name('ussd.simulator.input');
     Route::get('/ussd/{ussd}/simulator/logs', [USSDSimulatorController::class, 'getSessionLogs'])->name('ussd.simulator.logs');
     Route::get('/ussd/{ussd}/simulator/analytics', [USSDSimulatorController::class, 'getAnalytics'])->name('ussd.simulator.analytics');
+    
+    // USSD Production Management Routes
+    Route::post('/ussd/{ussd}/go-live', [USSDController::class, 'goLive'])->name('ussd.go-live');
+    Route::post('/ussd/{ussd}/go-testing', [USSDController::class, 'goTesting'])->name('ussd.go-testing');
+    Route::get('/ussd/{ussd}/production-status', [USSDController::class, 'getProductionStatus'])->name('ussd.production-status');
+    Route::get('/ussd/{ussd}/environment', [USSDController::class, 'environment'])->name('ussd.environment');
+    Route::get('/environment', [USSDController::class, 'environmentOverview'])->name('environment.overview');
+    Route::get('/ussd/{ussd}/production', [USSDController::class, 'production'])->name('ussd.production');
+    
+    // Gateway and Webhook Configuration Routes
+    Route::put('/ussd/{ussd}/configure-gateway', [USSDController::class, 'configureGateway'])->name('ussd.configure-gateway');
+    Route::put('/ussd/{ussd}/configure-webhook', [USSDController::class, 'configureWebhook'])->name('ussd.configure-webhook');
+    
+    // Billing Routes (Requires verified business)
+    Route::get('/billing', [BillingController::class, 'billingDashboard'])->name('billing.dashboard');
+    Route::post('/billing/add-funds', [BillingController::class, 'addFunds'])->name('billing.add-funds');
+    Route::get('/billing/summary', [BillingController::class, 'getSummary'])->name('billing.summary');
+    Route::get('/billing/stats', [BillingController::class, 'getStats'])->name('billing.stats');
+    Route::get('/billing/sessions', [BillingController::class, 'getSessionHistory'])->name('billing.sessions');
+    Route::get('/billing/sessions/filtered', [BillingController::class, 'getFilteredSessions'])->name('billing.sessions.filtered');
+    Route::post('/billing/add-test-funds', [BillingController::class, 'addTestFunds'])->name('billing.add-test-funds');
+    Route::get('/billing/export', [BillingController::class, 'export'])->name('billing.export');
+    
+    // Billing Method Change Requests
+    Route::post('/billing/request-method-change', [BillingController::class, 'requestBillingMethodChange'])->name('billing.request-method-change');
+    Route::post('/billing/cancel-method-change-request', [BillingController::class, 'cancelBillingMethodChangeRequest'])->name('billing.cancel-method-change-request');
+    Route::get('/billing/method-change-status', [BillingController::class, 'getBillingMethodChangeRequestStatus'])->name('billing.method-change-status');
+    
+    // Payment Routes (Requires verified business)
+    Route::get('/payment', [PaymentController::class, 'showPaymentPage'])->name('payment.index');
+    Route::post('/payment/initialize', [PaymentController::class, 'initialize'])->name('payment.initialize');
+    Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
+    Route::get('/payment/cancel', [PaymentController::class, 'cancel'])->name('payment.cancel');
+    Route::post('/payment/webhook/{gateway}', [PaymentController::class, 'webhook'])->name('payment.webhook');
+    Route::get('/payment/history', [PaymentController::class, 'history'])->name('payment.history');
+    Route::get('/payment/{payment}', [PaymentController::class, 'show'])->name('payment.show');
+    Route::post('/payment/{payment}/verify', [PaymentController::class, 'verifyManualPayment'])->name('payment.verify');
     
     // Analytics Routes (Requires verified business)
     Route::get('/analytics', [AnalyticsController::class, 'dashboard'])->name('analytics.dashboard');
@@ -170,6 +177,24 @@ Route::get('/test-flash', function () {
 })->middleware(['auth'])->name('test.flash');
 
 
+
+// Dynamic Flow Testing Routes
+Route::prefix('dynamic-flow')->group(function () {
+    Route::post('/handle', [DynamicFlowController::class, 'handle'])->name('dynamic.flow.handle');
+    Route::post('/test-step', [DynamicFlowController::class, 'testStep'])->name('dynamic.flow.test.step');
+});
+
+// Dynamic Flow Management Routes
+Route::middleware(['auth'])->group(function () {
+    Route::prefix('ussd/{ussd}/dynamic-flow')->group(function () {
+        Route::get('/builder', [DynamicFlowController::class, 'builder'])->name('ussd.dynamic-flow.builder');
+        Route::post('/steps', [DynamicFlowController::class, 'storeStep'])->name('ussd.dynamic-flow.steps.store');
+        Route::put('/steps/{step}', [DynamicFlowController::class, 'updateStep'])->name('ussd.dynamic-flow.steps.update');
+        Route::delete('/steps/{step}', [DynamicFlowController::class, 'destroyStep'])->name('ussd.dynamic-flow.steps.destroy');
+        Route::post('/configs', [DynamicFlowController::class, 'storeConfig'])->name('ussd.dynamic-flow.configs.store');
+        Route::delete('/configs/{config}', [DynamicFlowController::class, 'destroyConfig'])->name('ussd.dynamic-flow.configs.destroy');
+    });
+});
 
 require __DIR__ . '/auth.php';
 require __DIR__ .'/admin.php';

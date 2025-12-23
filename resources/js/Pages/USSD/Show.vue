@@ -52,11 +52,20 @@
                                         Edit
                                     </Link>
                                     <Link
-                                        :href="route('ussd.simulator', ussd.id)"
-                                        class="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:bg-green-700 active:bg-green-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                                        :href="route('ussd.dynamic-flow.builder', ussd.id)"
+                                        class="inline-flex items-center px-4 py-2 bg-purple-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-purple-700 focus:bg-purple-700 active:bg-purple-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"
                                     >
-                                        Test Simulator
+                                        Dynamic Flow Builder
                                     </Link>
+                                    <form :action="route('ussd.simulator', ussd.id)" method="GET" class="inline">
+                                        <input type="hidden" name="_token" :value="$page.props.csrf_token" />
+                                        <button
+                                            type="submit"
+                                            class="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:bg-green-700 active:bg-green-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                                        >
+                                            Test Simulator
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
                         </div>
@@ -73,9 +82,24 @@
                                             <dd class="mt-1 text-sm text-gray-900">{{ ussd.description }}</dd>
                                         </div>
                                         <div>
-                                            <dt class="text-sm font-medium text-gray-500">USSD Pattern</dt>
+                                            <dt class="text-sm font-medium text-gray-500">USSD Code</dt>
                                             <dd class="mt-1 text-sm text-gray-900 font-mono bg-gray-100 px-2 py-1 rounded">
-                                                {{ ussd.pattern }}
+                                                {{ getCurrentUssdCode() }}
+                                            </dd>
+                                        </div>
+                                        <div v-if="ussd.environment">
+                                            <dt class="text-sm font-medium text-gray-500">Environment</dt>
+                                            <dd class="mt-1">
+                                                <span :class="[
+                                                    'px-2 py-1 text-xs font-medium rounded-full',
+                                                    ussd.environment.name === 'production' 
+                                                        ? 'bg-green-100 text-green-800' 
+                                                        : ussd.environment.name === 'testing'
+                                                        ? 'bg-blue-100 text-blue-800'
+                                                        : 'bg-gray-100 text-gray-800'
+                                                ]">
+                                                    {{ ussd.environment.name === 'production' ? 'Production' : 'Testing' }}
+                                                </span>
                                             </dd>
                                         </div>
                                         <div>
@@ -148,20 +172,23 @@
                                     </div>
                                 </Link>
 
-                                <Link
-                                    :href="route('ussd.simulator', ussd.id)"
-                                    class="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                                >
-                                    <div class="flex-shrink-0">
-                                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                        </svg>
-                                    </div>
-                                    <div class="ml-4">
-                                        <h4 class="text-sm font-medium text-gray-900">Test Simulator</h4>
-                                        <p class="text-sm text-gray-500">Test your USSD service</p>
-                                    </div>
-                                </Link>
+                                <form :action="route('ussd.simulator', ussd.id)" method="GET" class="w-full">
+                                    <input type="hidden" name="_token" :value="$page.props.csrf_token" />
+                                    <button
+                                        type="submit"
+                                        class="w-full flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                                    >
+                                        <div class="flex-shrink-0">
+                                            <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                        </div>
+                                        <div class="ml-4">
+                                            <h4 class="text-sm font-medium text-gray-900">Test Simulator</h4>
+                                            <p class="text-sm text-gray-500">Test your USSD service</p>
+                                        </div>
+                                    </button>
+                                </form>
 
                                 <button
                                     @click="deleteUSSD"
@@ -205,6 +232,17 @@ const formatDate = (dateString) => {
         hour: '2-digit',
         minute: '2-digit'
     })
+}
+
+const getCurrentUssdCode = () => {
+    // Use the current USSD code based on environment
+    if (props.ussd.environment?.name === 'production') {
+        return props.ussd.live_ussd_code || 'Not configured'
+    } else if (props.ussd.environment?.name === 'testing') {
+        return props.ussd.testing_ussd_code || 'Not configured'
+    }
+    // Fallback to testing code, then live code, then pattern, then 'Not configured'
+    return props.ussd.testing_ussd_code || props.ussd.live_ussd_code || props.ussd.pattern || 'Not configured'
 }
 
 const toggleStatus = () => {

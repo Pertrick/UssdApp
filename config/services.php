@@ -35,4 +35,40 @@ return [
         ],
     ],
 
+    'africastalking' => [
+        'api_key' => env('AFRICASTALKING_API_KEY'),
+        'username' => env('AFRICASTALKING_USERNAME'),
+        'environment' => env('AFRICASTALKING_ENVIRONMENT', 'sandbox'),
+    ],
+
+    'paystack' => [
+        'secret_key' => env('PAYSTACK_SECRET_KEY'),
+        'public_key' => env('PAYSTACK_PUBLIC_KEY'),
+        'enabled' => env('PAYSTACK_ENABLED', true),
+    ],
+
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'key' => env('STRIPE_KEY'),
+        'enabled' => env('STRIPE_ENABLED', false),
+    ],
+
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'secret' => env('PAYPAL_SECRET'),
+        'enabled' => env('PAYPAL_ENABLED', false),
+    ],
+
+    'flutterwave' => [
+        'public_key' => env('FLUTTERWAVE_PUBLIC_KEY'),
+        'secret_key' => env('FLUTTERWAVE_SECRET_KEY'),
+        'enabled' => env('FLUTTERWAVE_ENABLED', false),
+    ],
+
+    'manual' => [
+        'bank_name' => env('MANUAL_BANK_NAME', ''),
+        'account_number' => env('MANUAL_ACCOUNT_NUMBER', ''),
+        'account_name' => env('MANUAL_ACCOUNT_NAME', ''),
+    ],
+
 ];

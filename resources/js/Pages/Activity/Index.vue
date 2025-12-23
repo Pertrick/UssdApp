@@ -4,13 +4,13 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import { ref, watch } from 'vue';
 import { debounce } from 'lodash';
 
-defineProps({
+const props = defineProps({
     activities: Object,
     filters: Object,
 });
 
-const search = ref('');
-const selectedType = ref('');
+const search = ref(props.filters?.search || '');
+const selectedType = ref(props.filters?.type || '');
 
 // Debounced search function
 const performSearch = debounce(() => {

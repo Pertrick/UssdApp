@@ -26,6 +26,9 @@
                             <NavLink :href="route('admin.analytics')" :active="route().current('admin.analytics')">
                                 Analytics
                             </NavLink>
+                            <NavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
+                                Invoices
+                            </NavLink>
                             <NavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                                 Settings
                             </NavLink>
@@ -76,6 +79,9 @@
                     </ResponsiveNavLink>
                     <ResponsiveNavLink :href="route('admin.analytics')" :active="route().current('admin.analytics')">
                         Analytics
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
+                        Invoices
                     </ResponsiveNavLink>
                     <ResponsiveNavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                         Settings

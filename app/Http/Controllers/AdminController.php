@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Business;
 use App\Models\User;
+use App\Models\Invoice;
 use App\Models\Role;
+use App\Models\BillingChangeRequest;
 use App\Enums\UserRole;
 use App\Enums\BusinessRegistrationStatus;
+use App\Enums\BillingMethod;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -246,6 +249,72 @@ class AdminController extends Controller
     }
 
     /**
+     * List invoices for postpaid billing
+     */
+    public function invoices(Request $request)
+    {
+        $query = Invoice::with('business')
+            ->orderByDesc('created_at');
+
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        $invoices = $query->paginate(20);
+
+        $businesses = Business::orderBy('business_name')
+            ->select('id', 'business_name')
+            ->get();
+
+        return Inertia::render('Admin/Invoices', [
+            'invoices' => $invoices,
+            'filters' => $request->only(['status']),
+            'businesses' => $businesses,
+        ]);
+    }
+
+    /**
+     * Generate a billing cycle invoice for a business
+     */
+    public function generateInvoice(Request $request, \App\Services\InvoiceService $invoiceService)
+    {
+        $request->validate([
+            'business_id' => 'required|exists:businesses,id',
+        ]);
+
+        $business = Business::findOrFail($request->business_id);
+
+        $invoice = $invoiceService->generateBillingCycleInvoice($business, auth()->id());
+
+        if (!$invoice) {
+            return back()->with('info', 'Business is on prepaid billing. No invoice generated.');
+        }
+
+        return back()->with('success', "Invoice {$invoice->invoice_number} generated successfully.");
+    }
+
+    /**
+     * Mark an invoice as paid (and update session billing statuses)
+     */
+    public function markInvoicePaid(Request $request, Invoice $invoice, \App\Services\InvoiceService $invoiceService)
+    {
+        $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'nullable|string|max:50',
+            'reference' => 'nullable|string|max:100',
+        ]);
+
+        $invoiceService->recordPayment(
+            $invoice,
+            $request->amount,
+            $request->payment_method,
+            $request->reference
+        );
+
+        return back()->with('success', "Invoice {$invoice->invoice_number} marked as paid.");
+    }
+
+    /**
      * Get business documents for download
      */
     public function downloadDocument(Business $business, $documentType)
@@ -300,5 +369,178 @@ class AdminController extends Controller
             'verificationStats' => $verificationStats,
             'recentActivity' => $recentActivity,
         ]);
+    }
+
+    /**
+     * Show billing change requests
+     */
+    public function billingChangeRequests(Request $request)
+    {
+        $query = BillingChangeRequest::with(['business.user', 'requester', 'reviewer'])
+            ->latest();
+
+        // Filter by status
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        $requests = $query->paginate(15);
+
+        return Inertia::render('Admin/BillingChangeRequests', [
+            'requests' => $requests,
+            'filters' => $request->only(['status']),
+        ]);
+    }
+
+    /**
+     * Approve billing change request
+     */
+    public function approveBillingChangeRequest(Request $request, BillingChangeRequest $billingChangeRequest)
+    {
+        $request->validate([
+            'admin_notes' => 'nullable|string|max:500',
+            'credit_limit' => 'nullable|numeric|min:0',
+            'payment_terms_days' => 'nullable|integer|min:1|max:365',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $business = $billingChangeRequest->business;
+            $requestedMethod = $billingChangeRequest->requested_method;
+
+            // Update business billing method
+            $updateData = [
+                'billing_method' => $requestedMethod,
+                'billing_change_request' => null,
+                'billing_change_reason' => null,
+                'billing_change_requested_at' => null,
+            ];
+
+            // If switching to postpaid, set credit limit and payment terms
+            if ($requestedMethod === BillingMethod::POSTPAID->value) {
+                if ($request->has('credit_limit')) {
+                    $updateData['credit_limit'] = $request->credit_limit;
+                }
+                if ($request->has('payment_terms_days')) {
+                    $updateData['payment_terms_days'] = $request->payment_terms_days;
+                }
+            }
+
+            $business->update($updateData);
+
+            // Approve the request
+            $billingChangeRequest->approve(
+                auth()->id(),
+                $request->admin_notes
+            );
+
+            DB::commit();
+
+            return back()->with('success', 'Billing method change approved successfully!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to approve billing method change: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reject billing change request
+     */
+    public function rejectBillingChangeRequest(Request $request, BillingChangeRequest $billingChangeRequest)
+    {
+        $request->validate([
+            'admin_notes' => 'required|string|max:500',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $billingChangeRequest->reject(
+                auth()->id(),
+                $request->admin_notes
+            );
+
+            // Clear the request from business
+            $business = $billingChangeRequest->business;
+            $business->update([
+                'billing_change_request' => null,
+                'billing_change_reason' => null,
+                'billing_change_requested_at' => null,
+            ]);
+
+            DB::commit();
+
+            return back()->with('success', 'Billing method change rejected successfully!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to reject billing method change: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update business billing method directly (admin override)
+     */
+    public function updateBusinessBillingMethod(Request $request, Business $business)
+    {
+        $request->validate([
+            'billing_method' => 'required|in:prepaid,postpaid',
+            'credit_limit' => 'nullable|numeric|min:0',
+            'payment_terms_days' => 'nullable|integer|min:1|max:365',
+            'billing_cycle' => 'nullable|in:daily,weekly,monthly',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $updateData = [
+                'billing_method' => $request->billing_method,
+            ];
+
+            // If postpaid, set credit limit and payment terms
+            if ($request->billing_method === BillingMethod::POSTPAID->value) {
+                if ($request->has('credit_limit')) {
+                    $updateData['credit_limit'] = $request->credit_limit;
+                }
+                if ($request->has('payment_terms_days')) {
+                    $updateData['payment_terms_days'] = $request->payment_terms_days;
+                }
+                if ($request->has('billing_cycle')) {
+                    $updateData['billing_cycle'] = $request->billing_cycle;
+                }
+            }
+
+            // Clear any pending requests
+            $updateData['billing_change_request'] = null;
+            $updateData['billing_change_reason'] = null;
+            $updateData['billing_change_requested_at'] = null;
+
+            $business->update($updateData);
+
+            DB::commit();
+
+            return back()->with('success', 'Billing method updated successfully!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to update billing method: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Suspend/unsuspend business account (for postpaid)
+     */
+    public function toggleAccountSuspension(Request $request, Business $business)
+    {
+        if ($business->isAccountSuspended()) {
+            $business->unsuspendAccount();
+            return back()->with('success', 'Account unsuspended successfully!');
+        } else {
+            $request->validate([
+                'suspension_reason' => 'required|string|max:500',
+            ]);
+
+            $business->suspendAccount($request->suspension_reason);
+            return back()->with('success', 'Account suspended successfully!');
+        }
     }
 }

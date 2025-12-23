@@ -23,12 +23,15 @@ class USSDFlow extends Model
         'sort_order',
         'flow_config',
         'is_active',
+        'flow_type',
+        'dynamic_config',
     ];
 
     protected $casts = [
         'is_root' => 'boolean',
         'is_active' => 'boolean',
         'flow_config' => 'array',
+        'dynamic_config' => 'array',
     ];
 
     public function ussd(): BelongsTo
@@ -74,14 +77,41 @@ class USSDFlow extends Model
     /**
      * Get the full display text (title + menu text)
      */
-    public function getFullDisplayText(): string
+    public function getFullDisplayText(?USSDSession $session = null): string
     {
         $text = '';
         if ($this->title) {
             $text .= $this->title . "\n";
         }
         $text .= $this->menu_text;
+        
+        // Replace template variables if session is provided
+        if ($session) {
+            $text = $this->replaceTemplateVariables($text, $session);
+        }
+        
         return $text;
+    }
+    
+    /**
+     * Replace template variables in text with session data
+     */
+    private function replaceTemplateVariables(string $text, USSDSession $session): string
+    {
+        $sessionData = $session->session_data ?? [];
+        
+        return preg_replace_callback('/\{\{([^}]+)\}\}/', function($matches) use ($session, $sessionData) {
+            $path = trim($matches[1]);
+            
+            // Handle session variables
+            if (str_starts_with($path, 'session.')) {
+                $field = substr($path, 8); // Remove 'session.' prefix
+                return $sessionData[$field] ?? '';
+            }
+            
+            // Handle direct session data access
+            return $sessionData[$path] ?? '';
+        }, $text);
     }
 
     /**
@@ -106,21 +136,21 @@ class USSDFlow extends Model
             $line = trim($line);
             if (empty($line)) continue;
             
-            // Check if line starts with a number (option)
-            if (preg_match('/^\d+[\.\)]?\s*(.+)$/', $line, $matches)) {
-                $optionText = trim($matches[1]);
-                if (!empty($optionText)) {
-                    $options[] = [
-                        'option_text' => $optionText,
-                        'option_value' => ($optionIndex + 1),
-                        'action_type' => 'navigate',
-                        'action_data' => null,
-                        'next_flow_id' => null,
-                        'sort_order' => $optionIndex + 1,
-                        'is_active' => true
-                    ];
-                    $optionIndex++;
-                }
+            // Remove any existing numbering patterns and extract just the text
+            $optionText = preg_replace('/^\d+[\.\)]?\s*/', '', $line);
+            $optionText = trim($optionText);
+            
+            if (!empty($optionText)) {
+                $options[] = [
+                    'option_text' => $optionText,
+                    'option_value' => ($optionIndex + 1), // Always use sequential numbering starting from 1
+                    'action_type' => 'navigate',
+                    'action_data' => null,
+                    'next_flow_id' => null,
+                    'sort_order' => $optionIndex + 1,
+                    'is_active' => true
+                ];
+                $optionIndex++;
             }
         }
         

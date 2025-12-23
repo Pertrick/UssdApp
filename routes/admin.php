@@ -37,4 +37,16 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     
     Route::get('/analytics', [AdminController::class, 'analytics'])->name('analytics');
     Route::get('/settings', [AdminController::class, 'settings'])->name('settings');
+    
+    // Billing Management Routes
+    Route::get('/billing-change-requests', [AdminController::class, 'billingChangeRequests'])->name('billing-change-requests');
+    Route::post('/billing-change-requests/{billingChangeRequest}/approve', [AdminController::class, 'approveBillingChangeRequest'])->name('billing-change-requests.approve');
+    Route::post('/billing-change-requests/{billingChangeRequest}/reject', [AdminController::class, 'rejectBillingChangeRequest'])->name('billing-change-requests.reject');
+    Route::post('/businesses/{business}/update-billing-method', [AdminController::class, 'updateBusinessBillingMethod'])->name('businesses.update-billing-method');
+    Route::post('/businesses/{business}/toggle-account-suspension', [AdminController::class, 'toggleAccountSuspension'])->name('businesses.toggle-account-suspension');
+
+    // Invoices Management Routes (postpaid billing)
+    Route::get('/invoices', [AdminController::class, 'invoices'])->name('invoices');
+    Route::post('/invoices/generate', [AdminController::class, 'generateInvoice'])->name('invoices.generate');
+    Route::post('/invoices/{invoice}/mark-paid', [AdminController::class, 'markInvoicePaid'])->name('invoices.mark-paid');
 });

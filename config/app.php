@@ -86,6 +86,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Currency
+    |--------------------------------------------------------------------------
+    |
+    | Default currency and symbol used throughout the application for billing
+    | and payment displays. Configure these in your .env file, e.g.:
+    | APP_CURRENCY=NGN
+    | APP_CURRENCY_SYMBOL=₦
+    |
+    */
+
+    'currency' => env('APP_CURRENCY', 'NGN'),
+    'currency_symbol' => env('APP_CURRENCY_SYMBOL', '₦'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Encryption Key
     |--------------------------------------------------------------------------
     |

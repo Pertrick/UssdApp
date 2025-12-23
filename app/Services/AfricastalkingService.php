@@ -2,315 +2,193 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use App\Models\USSD;
 use App\Models\USSDSession;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
-class AfricastalkingService
+class AfricasTalkingService
 {
     protected $apiKey;
     protected $username;
-    protected $baseUrl;
-    protected $environment;
+    protected $baseUrl = 'https://api.africastalking.com/version1';
 
-    public function __construct($environment = 'sandbox')
+    public function __construct()
     {
-        $this->environment = $environment;
-        $this->baseUrl = $environment === 'live' 
-            ? 'https://api.africastalking.com/version1'
-            : 'https://api.sandbox.africastalking.com/version1';
-        
-        $this->apiKey = $environment === 'live' 
-            ? config('services.africastalking.live_api_key')
-            : config('services.africastalking.sandbox_api_key');
-        
-        $this->username = $environment === 'live'
-            ? config('services.africastalking.live_username')
-            : config('services.africastalking.sandbox_username');
+        $this->apiKey = config('services.africastalking.api_key');
+        $this->username = config('services.africastalking.username');
     }
 
     /**
-     * Create a new USSD application
+     * Process incoming USSD request from AfricasTalking
      */
-    public function createUssdApplication($ussdCode, $callbackUrl)
+    public function processUSSDRequest(array $requestData): array
     {
         try {
-            $response = Http::withHeaders([
-                'apiKey' => $this->apiKey,
-                'Content-Type' => 'application/x-www-form-urlencoded',
-            ])->post($this->baseUrl . '/application', [
-                'username' => $this->username,
-                'ussdCode' => $ussdCode,
-                'callbackUrl' => $callbackUrl,
+            $sessionId = $requestData['sessionId'] ?? null;
+            $serviceCode = $requestData['serviceCode'] ?? null;
+            $phoneNumber = $requestData['phoneNumber'] ?? null;
+            $text = $requestData['text'] ?? '';
+
+            Log::info('AfricasTalking USSD Request', [
+                'sessionId' => $sessionId,
+                'serviceCode' => $serviceCode,
+                'phoneNumber' => $phoneNumber,
+                'text' => $text
             ]);
 
-            if ($response->successful()) {
-                Log::info('Africastalking USSD application created', [
-                    'ussd_code' => $ussdCode,
-                    'environment' => $this->environment,
-                    'response' => $response->json()
+            // Find USSD by service code
+            // AfricasTalking sends the actual USSD code (e.g., *384*123#)
+            // We need to check pattern, live_ussd_code, and testing_ussd_code
+            $ussd = USSD::where(function($query) use ($serviceCode) {
+                    $query->where('pattern', $serviceCode)
+                          ->orWhere('live_ussd_code', $serviceCode);
+                })
+                ->where('is_active', true)
+                ->first();
+
+            if (!$ussd) {
+                Log::warning('USSD not found for service code', [
+                    'serviceCode' => $serviceCode,
+                    'available_codes' => USSD::where('is_active', true)
+                        ->select('pattern', 'live_ussd_code')
+                        ->get()
+                        ->map(fn($u) => [
+                            'pattern' => $u->pattern,
+                            'live' => $u->live_ussd_code
+                        ])
                 ]);
-                return $response->json();
+                return $this->formatResponse('END', 'Invalid service code.');
             }
 
-            Log::error('Failed to create Africastalking USSD application', [
-                'ussd_code' => $ussdCode,
-                'response' => $response->body()
-            ]);
-            return false;
+            // Get or create session
+            $session = $this->getOrCreateSession($ussd, $sessionId, $phoneNumber);
+
+            // Process the input
+            $ussdSessionService = app(USSDSessionService::class);
+            $response = $ussdSessionService->processInput($session, $text);
+
+            // Format response for AfricasTalking
+            return $this->formatAfricasTalkingResponse($response);
 
         } catch (\Exception $e) {
-            Log::error('Exception creating Africastalking USSD application', [
+            Log::error('AfricasTalking USSD Error', [
                 'error' => $e->getMessage(),
-                'ussd_code' => $ussdCode
+                'request' => $requestData
             ]);
-            return false;
+
+            return $this->formatResponse('END', 'An error occurred. Please try again.');
         }
     }
 
     /**
-     * Send SMS notification (for USSD confirmations, etc.)
+     * Get or create USSD session
      */
-    public function sendSms($phoneNumber, $message)
+    protected function getOrCreateSession(USSD $ussd, string $sessionId, string $phoneNumber): USSDSession
+    {
+        // Try to find existing session
+        $session = USSDSession::where('session_id', $sessionId)->first();
+
+        if (!$session) {
+            // Create new session
+            $ussdSessionService = app(USSDSessionService::class);
+            $session = $ussdSessionService->startSession($ussd, $phoneNumber, 'AfricasTalking', null);
+            
+            // Update with AfricasTalking session ID
+            $session->update(['session_id' => $sessionId]);
+        }
+
+        return $session;
+    }
+
+    /**
+     * Format response for AfricasTalking
+     */
+    protected function formatAfricasTalkingResponse(array $response): array
+    {
+        $message = $response['message'] ?? 'Thank you for using our service.';
+        
+        if ($response['session_ended'] ?? false) {
+            return $this->formatResponse('END', $message);
+        } else {
+            return $this->formatResponse('CON', $message);
+        }
+    }
+
+    /**
+     * Format basic response
+     */
+    protected function formatResponse(string $responseType, string $message): array
+    {
+        return [
+            'response' => $responseType,
+            'message' => $message,
+            'freeFlow' => 'FC'
+        ];
+    }
+
+    /**
+     * Send SMS (for notifications, etc.)
+     */
+    public function sendSMS(string $phoneNumber, string $message): array
     {
         try {
             $response = Http::withHeaders([
                 'apiKey' => $this->apiKey,
                 'Content-Type' => 'application/x-www-form-urlencoded',
+                'Accept' => 'application/json'
             ])->post($this->baseUrl . '/messaging', [
                 'username' => $this->username,
                 'to' => $phoneNumber,
-                'message' => $message,
+                'message' => $message
             ]);
 
-            if ($response->successful()) {
-                Log::info('SMS sent successfully', [
-                    'phone' => $phoneNumber,
-                    'environment' => $this->environment
-                ]);
-                return $response->json();
-            }
-
-            Log::error('Failed to send SMS', [
-                'phone' => $phoneNumber,
-                'response' => $response->body()
-            ]);
-            return false;
+            return [
+                'success' => $response->successful(),
+                'data' => $response->json(),
+                'status' => $response->status()
+            ];
 
         } catch (\Exception $e) {
-            Log::error('Exception sending SMS', [
+            Log::error('AfricasTalking SMS Error', [
                 'error' => $e->getMessage(),
                 'phone' => $phoneNumber
             ]);
-            return false;
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
         }
     }
 
     /**
-     * Process incoming USSD request
+     * Get account balance
      */
-    public function processUssdRequest($request)
-    {
-        $sessionId = $request->input('sessionId');
-        $phoneNumber = $request->input('phoneNumber');
-        $text = $request->input('text', '');
-        $ussdCode = $request->input('serviceCode');
-
-        Log::info('Incoming USSD request', [
-            'session_id' => $sessionId,
-            'phone' => $phoneNumber,
-            'text' => $text,
-            'ussd_code' => $ussdCode,
-            'environment' => $this->environment
-        ]);
-
-        // Find the USSD service
-        $ussd = USSD::where('live_ussd_code', $ussdCode)
-                   ->orWhere('testing_ussd_code', $ussdCode)
-                   ->where('is_active', true)
-                   ->first();
-
-        if (!$ussd) {
-            return $this->formatResponse('Invalid USSD code', true);
-        }
-
-        // Create or get session
-        $session = USSDSession::firstOrCreate([
-            'session_id' => $sessionId,
-            'ussd_id' => $ussd->id,
-        ], [
-            'phone_number' => $phoneNumber,
-            'status' => 'active',
-            'start_time' => now(),
-        ]);
-
-        // Process the USSD flow
-        return $this->processUssdFlow($ussd, $session, $text);
-    }
-
-    /**
-     * Process USSD flow based on user input
-     */
-    protected function processUssdFlow($ussd, $session, $text)
-    {
-        $inputs = $text ? explode('*', $text) : [];
-        $currentLevel = count($inputs);
-
-        // Get the current flow based on level
-        $currentFlow = $ussd->flows()
-                           ->where('level', $currentLevel)
-                           ->first();
-
-        if (!$currentFlow) {
-            return $this->formatResponse('Invalid option. Please try again.', true);
-        }
-
-        // Log the interaction
-        $this->logInteraction($session, $currentFlow, $inputs);
-
-        // Get response based on flow type
-        switch ($currentFlow->flow_type) {
-            case 'menu':
-                return $this->handleMenuFlow($currentFlow);
-            
-            case 'input':
-                return $this->handleInputFlow($currentFlow, $inputs);
-            
-            case 'payment':
-                return $this->handlePaymentFlow($currentFlow, $session, $inputs);
-            
-            case 'confirmation':
-                return $this->handleConfirmationFlow($currentFlow, $session, $inputs);
-            
-            default:
-                return $this->formatResponse('Service temporarily unavailable.', true);
-        }
-    }
-
-    /**
-     * Handle menu-type flows
-     */
-    protected function handleMenuFlow($flow)
-    {
-        $options = $flow->options()->orderBy('sort_order')->get();
-        $menuText = $flow->title . "\n\n";
-
-        foreach ($options as $option) {
-            $menuText .= $option->sort_order . ". " . $option->title . "\n";
-        }
-
-        return $this->formatResponse($menuText, false);
-    }
-
-    /**
-     * Handle input-type flows
-     */
-    protected function handleInputFlow($flow, $inputs)
-    {
-        $response = $flow->title . "\n\n";
-        $response .= "Enter " . $flow->input_label . ":";
-        
-        return $this->formatResponse($response, false);
-    }
-
-    /**
-     * Handle payment flows
-     */
-    protected function handlePaymentFlow($flow, $session, $inputs)
-    {
-        if (!$flow->ussd->monetization_enabled) {
-            return $this->formatResponse('Payment feature not enabled for this service.', true);
-        }
-
-        // Here you would integrate with payment providers like M-Pesa, Airtel Money, etc.
-        $response = $flow->title . "\n\n";
-        $response .= "Amount: " . $flow->payment_amount . "\n";
-        $response .= "1. Confirm Payment\n";
-        $response .= "2. Cancel";
-
-        return $this->formatResponse($response, false);
-    }
-
-    /**
-     * Handle confirmation flows
-     */
-    protected function handleConfirmationFlow($flow, $session, $inputs)
-    {
-        $response = $flow->title . "\n\n";
-        $response .= "Thank you for using our service!\n";
-        $response .= "Transaction ID: " . $session->id;
-
-        // End the session
-        $session->update([
-            'status' => 'completed',
-            'end_time' => now(),
-        ]);
-
-        return $this->formatResponse($response, true);
-    }
-
-    /**
-     * Format USSD response
-     */
-    protected function formatResponse($message, $endSession = false)
-    {
-        $response = "CON " . $message;
-        
-        if ($endSession) {
-            $response = "END " . $message;
-        }
-
-        return response($response, 200, [
-            'Content-Type' => 'text/plain',
-        ]);
-    }
-
-    /**
-     * Log USSD interaction
-     */
-    protected function logInteraction($session, $flow, $inputs)
-    {
-        $session->logs()->create([
-            'ussd_id' => $session->ussd_id,
-            'flow_id' => $flow->id,
-            'action_type' => 'user_input',
-            'input_data' => json_encode($inputs),
-            'output_data' => $flow->title,
-            'status' => 'success',
-            'action_timestamp' => now(),
-        ]);
-    }
-
-    /**
-     * Get USSD application status
-     */
-    public function getApplicationStatus($ussdCode)
+    public function getBalance(): array
     {
         try {
             $response = Http::withHeaders([
                 'apiKey' => $this->apiKey,
-            ])->get($this->baseUrl . '/application', [
-                'username' => $this->username,
+                'Accept' => 'application/json'
+            ])->get($this->baseUrl . '/user', [
+                'username' => $this->username
             ]);
 
-            if ($response->successful()) {
-                $applications = $response->json();
-                foreach ($applications as $app) {
-                    if ($app['ussdCode'] === $ussdCode) {
-                        return $app;
-                    }
-                }
-            }
-
-            return null;
+            return [
+                'success' => $response->successful(),
+                'data' => $response->json()
+            ];
 
         } catch (\Exception $e) {
-            Log::error('Exception getting application status', [
-                'error' => $e->getMessage(),
-                'ussd_code' => $ussdCode
+            Log::error('AfricasTalking Balance Error', [
+                'error' => $e->getMessage()
             ]);
-            return null;
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
         }
     }
 } 

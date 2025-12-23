@@ -7,6 +7,11 @@ const scrollToSection = (sectionId) => {
     element.scrollIntoView({ behavior: 'smooth' })
   }
 }
+
+const props = defineProps({
+    showAuth: Boolean,
+});
+
 </script>
 
 <template>
@@ -32,10 +37,15 @@ const scrollToSection = (sectionId) => {
           <a href="#features" class="text-gray-700 hover:text-blue-600 transition-colors">Features</a>
           <a href="#pricing" class="text-gray-700 hover:text-blue-600 transition-colors">Pricing</a>
           <a href="#contact" class="text-gray-700 hover:text-blue-600 transition-colors">Contact</a>
-          <Link :href="route('login')" class="text-gray-700 hover:text-blue-600 transition-colors">Login</Link>
+          <template v-if="!showAuth">
+            <Link :href="route('login')" class="text-gray-700 hover:text-blue-600 transition-colors">Login</Link>
           <Link :href="route('business.register')" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
             Get Started
           </Link>
+          </template>
+          <template v-else>
+            <Link :href="route('dashboard')" class="text-gray-700 hover:text-blue-600 transition-colors">Dashboard</Link>
+          </template>
         </div>
       </div>
     </nav>

@@ -8,6 +8,7 @@ enum USSDActionType: string
     case MESSAGE = 'message';
     case END_SESSION = 'end_session';
     case API_CALL = 'api_call';
+    case EXTERNAL_API_CALL = 'external_api_call';
     case INPUT_COLLECTION = 'input_collection';
 
     /**
@@ -20,6 +21,7 @@ enum USSDActionType: string
             self::MESSAGE => 'Display Message',
             self::END_SESSION => 'End Session',
             self::API_CALL => 'API Call',
+            self::EXTERNAL_API_CALL => 'External API Call',
             self::INPUT_COLLECTION => 'Collect Input',
         };
     }
@@ -34,6 +36,7 @@ enum USSDActionType: string
             self::MESSAGE => 'Display a message to the user',
             self::END_SESSION => 'End the current USSD session',
             self::API_CALL => 'Make an external API call',
+            self::EXTERNAL_API_CALL => 'Make an external API call with configuration',
             self::INPUT_COLLECTION => 'Collect input from the user',
         };
     }
@@ -67,7 +70,7 @@ enum USSDActionType: string
      */
     public function makesExternalCall(): bool
     {
-        return $this === self::API_CALL;
+        return $this === self::API_CALL || $this === self::EXTERNAL_API_CALL;
     }
 
     /**

@@ -82,6 +82,38 @@ const logout = () => {
                                         USSD Services
                                     </Link>
                                 </li>
+                                <li>
+                                    <Link
+                                        :href="route('integration.index')"
+                                        :class="[
+                                            route().current('integration.*')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                        Integrations
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        :href="route('environment.overview')"
+                                        :class="[
+                                            route().current('environment.overview')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                        </svg>
+                                        Environment Management
+                                    </Link>
+                                </li>
                                
                                 <li>
                                     <Link
@@ -97,6 +129,38 @@ const logout = () => {
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                         </svg>
                                         Analytics
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        :href="route('billing.dashboard')"
+                                        :class="[
+                                            route().current('billing.*')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                                        </svg>
+                                        Billing
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        :href="route('payment.history')"
+                                        :class="[
+                                            route().current('payment.*')
+                                                ? 'bg-gray-800 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                                        ]"
+                                    >
+                                        <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6-2.25h6m2.25-6H3.75m0 0a2.25 2.25 0 01-2.25-2.25V3.75m0 0A2.25 2.25 0 013.75 1.5h16.5a2.25 2.25 0 012.25 2.25v16.5a2.25 2.25 0 01-2.25 2.25H3.75a2.25 2.25 0 01-2.25-2.25V3.75z" />
+                                        </svg>
+                                        Payment History
                                     </Link>
                                 </li>
                             </ul>
@@ -229,6 +293,36 @@ const logout = () => {
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
                                     Analytics
+                                </Link>
+                                <Link
+                                    :href="route('billing.dashboard')"
+                                    :class="[
+                                        route().current('billing.*')
+                                            ? 'bg-gray-800 text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                        'group flex gap-x-3 rounded-md px-3 py-2 text-base font-medium transition-colors'
+                                    ]"
+                                    @click="sidebarOpen = false"
+                                >
+                                    <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                                    </svg>
+                                    Billing
+                                </Link>
+                                <Link
+                                    :href="route('payment.history')"
+                                    :class="[
+                                        route().current('payment.*')
+                                            ? 'bg-gray-800 text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800',
+                                        'group flex gap-x-3 rounded-md px-3 py-2 text-base font-medium transition-colors'
+                                    ]"
+                                    @click="sidebarOpen = false"
+                                >
+                                    <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6-2.25h6m2.25-6H3.75m0 0a2.25 2.25 0 01-2.25-2.25V3.75m0 0A2.25 2.25 0 013.75 1.5h16.5a2.25 2.25 0 012.25 2.25v16.5a2.25 2.25 0 01-2.25 2.25H3.75a2.25 2.25 0 01-2.25-2.25V3.75z" />
+                                    </svg>
+                                    Payment History
                                 </Link>
                             </div>
                             <div class="py-6">

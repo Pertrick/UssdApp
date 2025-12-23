@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Enums\BusinessRegistrationStatus;
 use App\Enums\BusinessType;
 use App\Enums\DirectorIdType;
+use App\Enums\BillingMethod;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Requests\Business\StoreBusinessRequest;
@@ -47,6 +48,10 @@ class BusinessController extends Controller
                 'state' => $validated['state'],
                 'city' => $validated['city'],
                 'address' => $validated['address'],
+                // Default billing currency for new businesses (configurable via .env)
+                'billing_currency' => config('app.currency', 'NGN'),
+                // Default billing method is prepaid (pay upfront)
+                'billing_method' => BillingMethod::PREPAID,
                 'registration_status' => BusinessRegistrationStatus::CAC_INFO_PENDING,
                 'is_primary' => true,
             ]);

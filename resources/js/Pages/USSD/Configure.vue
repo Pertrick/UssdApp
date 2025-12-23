@@ -5,219 +5,145 @@
         <h2 class="text-2xl font-bold text-gray-900">Configure USSD Flow</h2>
         <div class="flex items-center gap-4">
           <span class="text-sm text-gray-500">Service: {{ ussd.name }} ({{ ussd.pattern }})</span>
-          <Link 
-            :href="route('ussd.simulator', ussd.id)" 
-            class="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded hover:bg-green-700 flex items-center gap-2"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            Test Simulation
-          </Link>
+          <form :action="route('ussd.simulator', ussd.id)" method="GET" class="inline">
+            <input type="hidden" name="_token" :value="$page.props.csrf_token" />
+            <button 
+              type="submit"
+              class="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded hover:bg-green-700 flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              Test Simulation
+            </button>
+          </form>
         </div>
       </div>
     </template>
 
-    <div class="py-8">
-      <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
-        <!-- Flows List -->
-        <div class="col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+    <!-- Marketplace Modal -->
+    <div v-if="showMarketplaceModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+      <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-900">Flows</h3>
-            <button @click="openAddFlowModal" class="px-2 py-1 rounded bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">+ Add Flow</button>
+            <h3 class="text-lg font-medium text-gray-900">Browse Marketplace APIs</h3>
+            <button @click="closeMarketplaceModal" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
           </div>
-          <ul>
-            <li v-for="flow in flows" :key="flow.id" :class="[selectedFlow && selectedFlow.id === flow.id ? 'bg-indigo-50' : '', 'rounded p-2 mb-2 cursor-pointer hover:bg-indigo-100']" @click="selectFlow(flow)">
-              <div class="flex items-center justify-between">
-                <span class="font-medium">{{ flow.name }}</span>
-                <div class="flex items-center gap-2">
-                  <span v-if="flow.is_root" class="text-xs text-green-600">Root</span>
-                  <span v-if="selectedFlow && selectedFlow.id === flow.id && hasUnsavedChanges()" class="text-xs text-orange-600 font-semibold">*</span>
+          
+          <div class="max-h-96 overflow-y-auto">
+            <div v-for="(category, categoryName) in marketplaceApisByCategory" :key="categoryName" class="mb-6">
+              <h4 class="text-md font-semibold text-gray-800 mb-3 border-b pb-2">{{ categoryName }}</h4>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div v-for="api in category" :key="api.id" 
+                     class="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
+                     @click="selectMarketplaceApi(api)">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <h5 class="font-medium text-gray-900">{{ api.name }}</h5>
+                      <p class="text-sm text-gray-600 mt-1">{{ api.description }}</p>
+                      <div class="flex items-center gap-2 mt-2">
+                        <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{{ api.method }}</span>
+                        <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">{{ api.provider_name }}</span>
+                        <span :class="getApiStatusClass(api.test_status)" class="text-xs px-2 py-1 rounded">
+                          {{ api.test_status }}
+                        </span>
+                      </div>
+                    </div>
+                    <button @click.stop="selectMarketplaceApi(api)" 
+                            class="ml-2 px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700">
+                      Use API
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div class="text-xs text-gray-500 truncate">
-                <div v-if="flow.title" class="font-medium">{{ flow.title }}</div>
-                <div>{{ flow.menu_text }}</div>
-              </div>
-            </li>
-          </ul>
-        </div>
-
-        <!-- Flow Editor -->
-        <div class="col-span-3 bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-h-[400px]">
-          <div v-if="selectedFlow">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold text-gray-900">Edit Flow: {{ selectedFlow.name }}</h3>
-              <button @click="openDeleteFlowModal(selectedFlow)" class="px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200">Delete Flow</button>
-            </div>
-            
-            <!-- Title Editor -->
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700">Title/Header</label>
-              <input 
-                v-model="selectedFlow.title" 
-                type="text"
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter title/header (e.g., Report type of fire)"
-              />
-              <p class="mt-1 text-xs text-gray-500">This will appear above the menu options</p>
-            </div>
-            
-            <!-- Menu Text Editor -->
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700">Menu Text (Numbered Options Only)</label>
-              <textarea 
-                v-model="selectedFlow.menu_text" 
-                rows="3" 
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter numbered options only (e.g., 1. Gas Leak&#10;2. Fuel/Petrol&#10;3. Oil)"
-                @input="handleMenuTextChange"
-              ></textarea>
-              <p class="mt-1 text-xs text-gray-500">Enter only the numbered options. Edit this text to automatically update the options below, or edit options to update this text.</p>
-            </div>
-            
-            <!-- Description -->
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700">Description</label>
-              <input v-model="selectedFlow.description" class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            
-            <!-- Options Editor -->
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700">Options (Auto-syncs with menu text)</label>
-              <p class="mt-1 text-xs text-gray-500 mb-2">
-                <strong>Input Collection Tip:</strong> For input options, you can specify what happens after collecting input. 
-                Leave "Next Flow" empty to stay in the same flow, select "End session after input" to close the session, or choose a flow to navigate to.
-              </p>
-              <div v-for="(option, idx) in selectedFlow.options" :key="option.id || idx" class="bg-gray-50 rounded p-3 mb-2 flex flex-col md:flex-row md:items-center gap-2 w-full">
-                <input v-model="option.option_text" placeholder="Option Text" class="flex-1 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" @input="handleOptionChange" />
-                <input v-model="option.option_value" placeholder="Value" class="w-20 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
-                <select v-model="option.action_type" class="w-32 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
-                  <option value="navigate">Navigate</option>
-                  <option value="message">Message</option>
-                  <option value="end_session">End Session</option>
-                  <option value="input_text">Input Text</option>
-                  <option value="input_number">Input Number</option>
-                  <option value="input_phone">Input Phone</option>
-                  <option value="input_account">Input Account</option>
-                  <option value="input_pin">Input PIN</option>
-                  <option value="input_amount">Input Amount</option>
-                  <option value="input_selection">Input Selection</option>
-                </select>
-                
-                <!-- Action-specific fields -->
-                <input v-if="option.action_type === 'message'" v-model="option.action_data.message" placeholder="Message" class="flex-1 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
-                <select v-if="option.action_type === 'navigate'" v-model="option.next_flow_id" class="w-40 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
-                  <option value="">Select flow</option>
-                  <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">{{ flow.name }}</option>
-                </select>
-                
-                <!-- Input collection configuration -->
-                <div v-if="['input_text', 'input_number', 'input_phone', 'input_account', 'input_pin', 'input_amount', 'input_selection'].includes(option.action_type)" class="flex flex-col gap-2 w-full">
-                  <select v-model="option.next_flow_id" class="w-full min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
-                    <option value="">Stay in same flow (show menu again)</option>
-                    <option value="end_session">End session after input</option>
-                    <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">Go to: {{ flow.name }}</option>
-                  </select>
-                  <input v-model="option.action_data.prompt" placeholder="Custom prompt (optional)" class="w-full min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
-                  <input v-model="option.action_data.success_message" placeholder="Success message (optional)" class="w-full min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
-                </div>
-                
-                <button @click="removeOption(idx)" class="text-red-500 hover:text-red-700 ml-2 px-2 py-1 text-sm whitespace-nowrap">Remove</button>
-              </div>
-              <button @click="addOption" class="mt-2 px-3 py-1 rounded bg-indigo-100 text-indigo-700 text-xs font-semibold hover:bg-indigo-200">+ Add Option</button>
-            </div>
-            
-            <!-- Save/Cancel Buttons -->
-            <div class="flex justify-end gap-2">
-              <button 
-                @click="cancelEdit" 
-                :disabled="savingFlow"
-                class="px-4 py-2 rounded bg-gray-300 text-gray-700 font-semibold hover:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button 
-                @click="saveFlow" 
-                :disabled="savingFlow"
-                :class="[
-                  hasUnsavedChanges() ? 'bg-orange-600 hover:bg-orange-700' : 'bg-indigo-600 hover:bg-indigo-700',
-                  'px-4 py-2 rounded text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2'
-                ]"
-              >
-                <svg v-if="savingFlow" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {{ savingFlow ? 'Saving...' : (hasUnsavedChanges() ? 'Save Changes*' : 'Save Flow') }}
-              </button>
             </div>
           </div>
-          <div v-else class="text-gray-400 flex items-center justify-center h-full min-h-[300px]">
-            <span>Select a flow to edit or add a new one.</span>
+          
+          <div class="mt-6 flex justify-end">
+            <button @click="closeMarketplaceModal" 
+                    class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              Close
+            </button>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- API Configuration Wizard Modal -->
+    <div v-if="showAPIConfigurationWizard" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+      <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">Configure API Integration</h3>
+            <button @click="closeAPIConfigurationWizard" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+          
+          <APIConfigurationWizard
+            :marketplace-apis="marketplaceApis"
+            :custom-apis="customApis"
+            :available-flows="availableFlows"
+            @completed="handleAPIConfigurationCompleted"
+            @cancelled="closeAPIConfigurationWizard"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="py-8">
+      <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
+        <!-- Flows List -->
+        <FlowList
+          :flows="flows"
+          :selected-flow="selectedFlow"
+          :has-unsaved-changes="hasUnsavedChanges()"
+          @add-flow="openAddFlowModal"
+          @select-flow="selectFlow"
+        />
+
+        <!-- Flow Editor -->
+        <FlowEditor
+          :flow="selectedFlow"
+          :available-flows="availableFlows"
+          :marketplace-apis="marketplaceApis"
+          :custom-apis="customApis"
+          :has-unsaved-changes="hasUnsavedChanges()"
+          :saving="savingFlow"
+          @update-flow="updateFlow"
+          @update-dynamic-config="updateDynamicConfig"
+          @update-option="updateOption"
+          @update-action-data="updateActionData"
+          @add-option="addOption"
+          @remove-option="removeOption"
+          @save-flow="saveFlow"
+          @cancel-edit="cancelEdit"
+          @delete-flow="openDeleteFlowModal"
+          @open-api-wizard="openAPIConfigurationWizard"
+        />
+      </div>
 
       <!-- Add Flow Modal -->
-      <FormModal
+      <AddFlowModal
         :show="showAddFlowModal"
-        title="Add New Flow"
-        confirm-text="Add Flow"
-        cancel-text="Cancel"
-        type="primary"
-        :loading="savingFlow"
-        @confirm="saveNewFlow"
-        @cancel="closeAddFlowModal"
-      >
-        <div class="space-y-4">
-          <div v-if="flowErrors.general" class="bg-red-50 border border-red-200 rounded-md p-3">
-            <p class="text-sm text-red-600">{{ flowErrors.general }}</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Flow Name</label>
-            <input 
-              v-model="flowForm.name" 
-              type="text"
-              :class="[flowErrors.name ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
-              placeholder="Enter flow name"
-            />
-            <p v-if="flowErrors.name" class="mt-1 text-sm text-red-600">{{ flowErrors.name }}</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Title/Header (Optional)</label>
-            <input 
-              v-model="flowForm.title" 
-              type="text"
-              :class="[flowErrors.title ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
-              placeholder="Enter title/header (e.g., Report type of fire)"
-            />
-            <p v-if="flowErrors.title" class="mt-1 text-sm text-red-600">{{ flowErrors.title }}</p>
-            <p class="mt-1 text-xs text-gray-500">This will appear above the menu options (optional)</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Menu Text (Numbered Options Only)</label>
-            <textarea 
-              v-model="flowForm.menu_text" 
-              rows="3"
-              :class="[flowErrors.menu_text ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
-              placeholder="Enter numbered options only (e.g., 1. Gas Leak&#10;2. Fuel/Petrol&#10;3. Oil)"
-            ></textarea>
-            <p v-if="flowErrors.menu_text" class="mt-1 text-sm text-red-600">{{ flowErrors.menu_text }}</p>
-            <p class="mt-1 text-xs text-gray-500">Enter only the numbered options. The title will be added automatically.</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Description</label>
-            <input 
-              v-model="flowForm.description" 
-              type="text"
-              :class="[flowErrors.description ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
-              placeholder="Enter flow description"
-            />
-            <p v-if="flowErrors.description" class="mt-1 text-sm text-red-600">{{ flowErrors.description }}</p>
-          </div>
-        </div>
-      </FormModal>
+        :form="flowForm"
+        :errors="flowErrors"
+        :saving="savingFlow"
+        :marketplace-apis="marketplaceApis"
+        :custom-apis="customApis"
+        :available-flows="availableFlows"
+        @close="closeAddFlowModal"
+        @save="saveNewFlow"
+        @update-form="updateFlowForm"
+        @update-dynamic-config="updateNewFlowDynamicConfig"
+        @open-api-wizard="openAPIConfigurationWizard"
+      />
 
       <!-- Delete Flow Modal -->
       <ConfirmationModal
@@ -236,14 +162,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { Head, Link, useForm } from '@inertiajs/vue3'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { useForm } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
-import FormModal from '@/Components/FormModal.vue'
 import ConfirmationModal from '@/Components/ConfirmationModal.vue'
+import APIConfigurationWizard from '@/Components/APIConfigurationWizard.vue'
+import FlowList from '@/Components/USSD/FlowList.vue'
+import FlowEditor from '@/Components/USSD/FlowEditor.vue'
+import AddFlowModal from '@/Components/USSD/AddFlowModal.vue'
+import { csrfToken } from '@/utils/csrf.js'
 
 const props = defineProps({
     ussd: Object,
+    marketplaceApis: {
+        type: Array,
+        default: () => []
+    },
+    customApis: {
+        type: Array,
+        default: () => []
+    }
 })
 
 const flows = ref(props.ussd.flows || [])
@@ -251,8 +189,11 @@ const selectedFlow = ref(null)
 const originalFlow = ref(null)
 const showAddFlowModal = ref(false)
 const showDeleteFlowModal = ref(false)
+const showMarketplaceModal = ref(false)
+const showAPIConfigurationWizard = ref(false)
 const savingFlow = ref(false)
 const deletingFlow = ref(false)
+const currentApiOption = ref(null)
 
 // Form data
 const flowForm = useForm({
@@ -260,6 +201,19 @@ const flowForm = useForm({
     title: '',
     menu_text: '',
     description: '',
+    flow_type: 'static',
+    dynamic_config: {
+        api_configuration_id: '',
+        list_path: '',
+        label_field: 'name',
+        value_field: 'id',
+        empty_message: 'No options available',
+        continuation_type: 'continue',
+        next_flow_id: '',
+        items_per_page: '7',
+        next_label: 'Next',
+        back_label: 'Back'
+    }
 })
 
 // Validation errors
@@ -268,6 +222,18 @@ const flowErrors = ref({})
 // Computed properties
 const availableFlows = computed(() => {
     return flows.value.filter(flow => flow.id !== selectedFlow.value?.id)
+})
+
+const marketplaceApisByCategory = computed(() => {
+    const grouped = {}
+    props.marketplaceApis.forEach(api => {
+        const category = api.marketplace_category || 'Other'
+        if (!grouped[category]) {
+            grouped[category] = []
+        }
+        grouped[category].push(api)
+    })
+    return grouped
 })
 
 // Methods
@@ -281,14 +247,40 @@ const selectFlow = (flow) => {
     
     // Deep clone the flow and ensure all options have proper action_data
     const clonedFlow = JSON.parse(JSON.stringify(flow))
+    
+    // Initialize flow_type if not set (default to static for backward compatibility)
+    if (!clonedFlow.flow_type) {
+        clonedFlow.flow_type = 'static'
+    }
+    
+    // Initialize dynamic_config if not set
+    if (!clonedFlow.dynamic_config) {
+        clonedFlow.dynamic_config = {
+            api_configuration_id: '',
+            list_path: '',
+            label_field: 'name',
+            value_field: 'id',
+            empty_message: 'No options available',
+            continuation_type: 'continue',
+            next_flow_id: '',
+            items_per_page: '7',
+            next_label: 'Next',
+            back_label: 'Back'
+        }
+    }
+    
     if (clonedFlow.options) {
         clonedFlow.options.forEach(option => {
-            if (!option.action_data || typeof option.action_data !== 'object') {
+            // Handle action_data - only initialize if null or not an object
+            if (option.action_data === null) {
+                option.action_data = {}
+            } else if (typeof option.action_data !== 'object') {
                 option.action_data = {}
             }
+            // Don't overwrite valid objects or arrays - they might contain important data
             
             // Handle end_session_after_input flag for display
-            if (option.action_data.end_session_after_input) {
+            if (option.action_data && option.action_data.end_session_after_input) {
                 option.next_flow_id = 'end_session'
             }
         })
@@ -300,6 +292,19 @@ const selectFlow = (flow) => {
 
 const openAddFlowModal = () => {
     flowForm.reset()
+    flowForm.flow_type = 'static'
+    flowForm.dynamic_config = {
+        api_configuration_id: '',
+        list_path: '',
+        label_field: 'name',
+        value_field: 'id',
+        empty_message: 'No options available',
+        continuation_type: 'continue',
+        next_flow_id: '',
+        items_per_page: '7',
+        next_label: 'Next',
+        back_label: 'Back'
+    }
     showAddFlowModal.value = true
 }
 
@@ -310,6 +315,19 @@ const openDeleteFlowModal = (flow) => {
 
 const closeAddFlowModal = () => {
     flowForm.reset()
+    flowForm.flow_type = 'static'
+    flowForm.dynamic_config = {
+        api_configuration_id: '',
+        list_path: '',
+        label_field: 'name',
+        value_field: 'id',
+        empty_message: 'No options available',
+        continuation_type: 'continue',
+        next_flow_id: '',
+        items_per_page: '7',
+        next_label: 'Next',
+        back_label: 'Back'
+    }
     flowErrors.value = {}
     showAddFlowModal.value = false
 }
@@ -334,47 +352,6 @@ const removeOption = (index) => {
     selectedFlow.value.options.splice(index, 1)
 }
 
-const handleMenuTextChange = () => {
-    // Parse menu text and update options
-    const lines = selectedFlow.value.menu_text.split('\n').filter(line => line.trim())
-    const newOptions = []
-    
-    lines.forEach((line, index) => {
-        // Remove numbering patterns
-        let optionText = line.trim().replace(/^\d+[\.\)]?\s*/, '')
-        
-        if (optionText) {
-            const newOption = {
-                option_text: optionText,
-                option_value: (index + 1).toString(),
-                action_type: 'navigate',
-                action_data: {},
-                next_flow_id: null
-            }
-            newOptions.push(newOption)
-        }
-    })
-    
-    // Update options if we have valid ones
-    if (newOptions.length > 0) {
-        selectedFlow.value.options = newOptions
-    }
-}
-
-const handleOptionChange = () => {
-    // Generate menu text from options
-    const validOptions = selectedFlow.value.options.filter(option => option.option_text && option.option_text.trim())
-    
-    if (validOptions.length > 0) {
-        let menuText = ''
-        validOptions.forEach((option, index) => {
-            if (index > 0) menuText += '\n'
-            menuText += `${index + 1}. ${option.option_text}`
-        })
-        selectedFlow.value.menu_text = menuText
-    }
-}
-
 const hasUnsavedChanges = () => {
     if (!selectedFlow.value || !originalFlow.value) return false
     
@@ -388,21 +365,32 @@ const saveFlow = async () => {
     flowErrors.value = {}
     
     try {
+        const requestData = {
+            name: selectedFlow.value.name,
+            title: selectedFlow.value.title || '',
+            menu_text: selectedFlow.value.menu_text,
+            description: selectedFlow.value.description || '',
+            options: selectedFlow.value.options || [],
+            flow_type: selectedFlow.value.flow_type || 'static',
+            dynamic_config: selectedFlow.value.dynamic_config || {}
+        }
+        
         const response = await fetch(`/ussd/${props.ussd.id}/flows/${selectedFlow.value.id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'X-CSRF-TOKEN': csrfToken.get(),
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({
-                name: selectedFlow.value.name,
-                title: selectedFlow.value.title || '',
-                menu_text: selectedFlow.value.menu_text,
-                description: selectedFlow.value.description || '',
-                options: selectedFlow.value.options || []
-            })
+            body: JSON.stringify(requestData)
         })
+        
+        // Handle CSRF token mismatch
+        if (response.status === 419) {
+            // Refresh CSRF token and retry
+            await csrfToken.refresh()
+            return saveFlow() // Retry the request
+        }
         
         const result = await response.json()
         
@@ -415,12 +403,17 @@ const saveFlow = async () => {
             const convertedFlow = JSON.parse(JSON.stringify(result.flow))
             if (convertedFlow.options) {
                 convertedFlow.options.forEach(option => {
-                    if (!option.action_data || typeof option.action_data !== 'object') {
+                    // Handle action_data - only initialize if null or not an object
+                    if (option.action_data === null) {
+                        option.action_data = {}
+            // Don't overwrite arrays - they might contain important data
+                    } else if (typeof option.action_data !== 'object') {
                         option.action_data = {}
                     }
+                    // Don't overwrite valid objects - they might contain important data
                     
                     // Handle end_session_after_input flag for display
-                    if (option.action_data.end_session_after_input) {
+                    if (option.action_data && option.action_data.end_session_after_input) {
                         option.next_flow_id = 'end_session'
                     }
                 })
@@ -447,11 +440,18 @@ const saveNewFlow = async () => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'X-CSRF-TOKEN': csrfToken.get(),
                 'Accept': 'application/json'
             },
             body: JSON.stringify(flowForm.data())
         })
+        
+        // Handle CSRF token mismatch
+        if (response.status === 419) {
+            // Refresh CSRF token and retry
+            await csrfToken.refresh()
+            return saveNewFlow() // Retry the request
+        }
         
         const result = await response.json()
         
@@ -460,12 +460,17 @@ const saveNewFlow = async () => {
             const convertedFlow = JSON.parse(JSON.stringify(result.flow))
             if (convertedFlow.options) {
                 convertedFlow.options.forEach(option => {
-                    if (!option.action_data || typeof option.action_data !== 'object') {
+                    // Handle action_data - only initialize if null or not an object
+                    if (option.action_data === null) {
+                        option.action_data = {}
+            // Don't overwrite arrays - they might contain important data
+                    } else if (typeof option.action_data !== 'object') {
                         option.action_data = {}
                     }
+                    // Don't overwrite valid objects - they might contain important data
                     
                     // Handle end_session_after_input flag for display
-                    if (option.action_data.end_session_after_input) {
+                    if (option.action_data && option.action_data.end_session_after_input) {
                         option.next_flow_id = 'end_session'
                     }
                 })
@@ -493,10 +498,17 @@ const deleteFlow = async () => {
         const response = await fetch(`/ussd/${props.ussd.id}/flows/${selectedFlow.value.id}`, {
             method: 'DELETE',
             headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'X-CSRF-TOKEN': csrfToken.get(),
                 'Accept': 'application/json'
             }
         })
+        
+        // Handle CSRF token mismatch
+        if (response.status === 419) {
+            // Refresh CSRF token and retry
+            await csrfToken.refresh()
+            return deleteFlow() // Retry the request
+        }
         
         const result = await response.json()
         
@@ -518,6 +530,98 @@ const cancelEdit = () => {
         if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
             selectedFlow.value = originalFlow.value ? JSON.parse(JSON.stringify(originalFlow.value)) : null
         }
+    }
+}
+
+// Component event handlers
+const updateFlow = (key, value) => {
+    if (selectedFlow.value) {
+        selectedFlow.value[key] = value
+    }
+}
+
+const updateDynamicConfig = (key, value) => {
+    if (selectedFlow.value && selectedFlow.value.dynamic_config) {
+        selectedFlow.value.dynamic_config[key] = value
+    }
+}
+
+const updateOption = (index, key, value) => {
+    if (selectedFlow.value && selectedFlow.value.options && selectedFlow.value.options[index]) {
+        selectedFlow.value.options[index][key] = value
+    }
+}
+
+const updateActionData = (index, key, value) => {
+    if (selectedFlow.value && selectedFlow.value.options && selectedFlow.value.options[index]) {
+        if (!selectedFlow.value.options[index].action_data) {
+            selectedFlow.value.options[index].action_data = {}
+        }
+        selectedFlow.value.options[index].action_data[key] = value
+    }
+}
+
+const updateFlowForm = (key, value) => {
+    flowForm[key] = value
+}
+
+const updateNewFlowDynamicConfig = (key, value) => {
+    if (flowForm.dynamic_config) {
+        flowForm.dynamic_config[key] = value
+    }
+}
+
+// Marketplace API methods
+const openMarketplaceModal = (option = null) => {
+    currentApiOption.value = option
+    showMarketplaceModal.value = true
+}
+
+const closeMarketplaceModal = () => {
+    showMarketplaceModal.value = false
+    currentApiOption.value = null
+}
+
+const openAPIConfigurationWizard = (option = null) => {
+    currentApiOption.value = option
+    showAPIConfigurationWizard.value = true
+}
+
+const closeAPIConfigurationWizard = () => {
+    showAPIConfigurationWizard.value = false
+    currentApiOption.value = null
+}
+
+const handleAPIConfigurationCompleted = (data) => {
+    if (currentApiOption.value) {
+        // Set the API configuration for the current option
+        currentApiOption.value.action_data.api_configuration_id = data.api.id
+        currentApiOption.value.action_data.success_flow_id = data.configuration.success_flow_id
+        currentApiOption.value.action_data.error_flow_id = data.configuration.error_flow_id
+        currentApiOption.value.action_data.end_session_after_api = data.configuration.end_session_after_api
+    }
+    closeAPIConfigurationWizard()
+}
+
+const selectMarketplaceApi = (api) => {
+    if (currentApiOption.value) {
+        // Set the API configuration for the current option
+        currentApiOption.value.action_data.api_configuration_id = api.id
+        currentApiOption.value.action_data.end_session_after_api = false
+    }
+    closeMarketplaceModal()
+}
+
+const getApiStatusClass = (status) => {
+    switch (status) {
+        case 'success':
+            return 'bg-green-100 text-green-800'
+        case 'failed':
+            return 'bg-red-100 text-red-800'
+        case 'pending':
+            return 'bg-yellow-100 text-yellow-800'
+        default:
+            return 'bg-gray-100 text-gray-800'
     }
 }
 
@@ -553,4 +657,4 @@ input, select {
 .gap-2 > * {
   margin: 0;
 }
-</style> 
+</style>

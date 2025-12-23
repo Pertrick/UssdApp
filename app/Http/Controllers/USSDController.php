@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Http\Requests\USSD\StoreUSSDRequest;
 use App\Http\Requests\USSD\UpdateUSSDRequest;
 use App\Services\ActivityService;
+use App\Services\EnvironmentManagementService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\USSDFlow;
@@ -21,7 +22,10 @@ class USSDController extends Controller
      */
     public function index()
     {
-        $ussds = Auth::user()->ussds()->with('business')->latest()->get();
+        $ussds = Auth::user()->ussds()
+            ->with(['business', 'environment'])
+            ->latest()
+            ->get();
         
         return Inertia::render('USSD/Index', [
             'ussds' => $ussds
@@ -50,12 +54,28 @@ class USSDController extends Controller
         // Ensure the business belongs to the authenticated user
         $business = Auth::user()->primaryBusiness;
         
+        // Get testing environment (default for new USSDs)
+        $testingEnvironment = \App\Models\Environment::where('name', 'testing')->first();
+        if (!$testingEnvironment) {
+            // Fallback: create testing environment if it doesn't exist
+            $testingEnvironment = \App\Models\Environment::create([
+                'name' => 'testing',
+                'label' => 'Testing',
+                'description' => 'Real API calls in test/sandbox mode',
+                'color' => 'yellow',
+                'allows_real_api_calls' => true,
+                'is_default' => true,
+                'is_active' => true,
+            ]);
+        }
+        
         $ussd = USSD::create([
             'name' => $validated['name'],
             'description' => $validated['description'],
             'pattern' => $validated['pattern'],
             'user_id' => Auth::id(),
             'business_id' => $business->id,
+            'environment_id' => $testingEnvironment->id,
             'is_active' => true,
         ]);
 
@@ -83,7 +103,7 @@ class USSDController extends Controller
         $ussd->ensureRootFlow();
 
         return Inertia::render('USSD/Show', [
-            'ussd' => $ussd->load(['business', 'flows.options'])
+            'ussd' => $ussd->load(['business', 'environment', 'flows.options'])
         ]);
     }
 
@@ -180,10 +200,28 @@ class USSDController extends Controller
         // Ensure USSD has a root flow
         $ussd->ensureRootFlow();
 
+        // Get marketplace APIs (templates)
+        $marketplaceApis = \App\Models\ExternalAPIConfiguration::where('category', 'marketplace')
+            ->where('is_marketplace_template', true)
+            ->where('is_active', true)
+            ->where('is_verified', true)
+            ->orderBy('marketplace_category')
+            ->orderBy('name')
+            ->get();
+
+        // Get user's custom APIs
+        $customApis = \App\Models\ExternalAPIConfiguration::where('user_id', Auth::id())
+            ->where('category', 'custom')
+            ->where('is_active', true)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
         return Inertia::render('USSD/Configure', [
             'ussd' => $ussd->load(['flows' => function($query) {
                 $query->with('options')->orderBy('sort_order');
-            }])
+            }]),
+            'marketplaceApis' => $marketplaceApis,
+            'customApis' => $customApis,
         ]);
     }
 
@@ -222,14 +260,26 @@ class USSDController extends Controller
             $validated = $request->validate([
                 'name' => 'required|string|max:255|min:2',
                 'title' => 'nullable|string|max:255',
-                'menu_text' => 'required|string|max:1000|min:5',
+                'menu_text' => 'required_if:flow_type,static|nullable|string|max:1000|min:5',
                 'description' => 'nullable|string|max:500',
+                'flow_type' => 'required|in:static,dynamic',
+                'dynamic_config' => 'nullable|array',
+                'dynamic_config.api_configuration_id' => 'required_if:flow_type,dynamic|nullable|exists:external_api_configurations,id',
+                'dynamic_config.list_path' => 'nullable|string|max:255',
+                'dynamic_config.label_field' => 'nullable|string|max:100',
+                'dynamic_config.value_field' => 'nullable|string|max:100',
+                'dynamic_config.empty_message' => 'nullable|string|max:500',
+                'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent',
+                'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id',
+                'dynamic_config.items_per_page' => 'nullable|integer|min:3|max:20',
+                'dynamic_config.next_label' => 'nullable|string|max:20',
+                'dynamic_config.back_label' => 'nullable|string|max:20',
             ], [
                 'name.required' => 'Flow name is required.',
                 'name.min' => 'Flow name must be at least 2 characters.',
                 'name.max' => 'Flow name cannot exceed 255 characters.',
                 'title.max' => 'Title cannot exceed 255 characters.',
-                'menu_text.required' => 'Menu text is required.',
+                'menu_text.required_if' => 'Menu text is required for static flows.',
                 'menu_text.min' => 'Menu text must be at least 5 characters.',
                 'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
                 'description.max' => 'Description cannot exceed 500 characters.',
@@ -248,15 +298,19 @@ class USSDController extends Controller
             $flow = $ussd->flows()->create([
                 'name' => $validated['name'],
                 'title' => $validated['title'] ?? null,
-                'menu_text' => $validated['menu_text'],
+                'menu_text' => $validated['menu_text'] ?? '',
                 'description' => $validated['description'] ?? '',
+                'flow_type' => $validated['flow_type'],
+                'dynamic_config' => $validated['dynamic_config'] ?? null,
                 'is_root' => false,
                 'sort_order' => $ussd->flows()->count(),
                 'is_active' => true,
             ]);
 
-            // Parse menu_text to create initial options
-            $flow->parseMenuTextToOptions();
+            // Parse menu_text to create initial options (only for static flows)
+            if ($flow->flow_type === 'static' && !empty($validated['menu_text'])) {
+                $flow->parseMenuTextToOptions();
+            }
 
             return response()->json([
                 'success' => true,
@@ -295,12 +349,24 @@ class USSDController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255|min:2',
             'title' => 'nullable|string|max:255',
-            'menu_text' => 'required|string|max:1000|min:5',
+            'menu_text' => 'required_if:flow_type,static|nullable|string|max:1000|min:5',
             'description' => 'nullable|string|max:500',
+            'flow_type' => 'required|in:static,dynamic',
+            'dynamic_config' => 'nullable|array',
+            'dynamic_config.api_configuration_id' => 'required_if:flow_type,dynamic|nullable|exists:external_api_configurations,id',
+            'dynamic_config.list_path' => 'nullable|string|max:255',
+            'dynamic_config.label_field' => 'nullable|string|max:100',
+            'dynamic_config.value_field' => 'nullable|string|max:100',
+            'dynamic_config.empty_message' => 'nullable|string|max:500',
+            'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent',
+            'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id',
+            'dynamic_config.items_per_page' => 'nullable|integer|min:3|max:20',
+            'dynamic_config.next_label' => 'nullable|string|max:20',
+            'dynamic_config.back_label' => 'nullable|string|max:20',
             'options' => 'array',
             'options.*.option_text' => 'required|string|max:255|min:1',
             'options.*.option_value' => 'required|string|max:50|min:1',
-            'options.*.action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
+            'options.*.action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection,external_api_call',
             'options.*.action_data' => 'nullable|array',
             'options.*.action_data.message' => 'required_if:options.*.action_type,message|string|max:500',
             'options.*.action_data.prompt' => 'nullable|string|max:200',
@@ -311,7 +377,7 @@ class USSDController extends Controller
             'name.required' => 'Flow name is required.',
             'name.min' => 'Flow name must be at least 2 characters.',
             'name.max' => 'Flow name cannot exceed 255 characters.',
-            'menu_text.required' => 'Menu text is required.',
+            'menu_text.required_if' => 'Menu text is required for static flows.',
             'menu_text.min' => 'Menu text must be at least 5 characters.',
             'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
             'description.max' => 'Description cannot exceed 500 characters.',
@@ -340,15 +406,19 @@ class USSDController extends Controller
         }
 
         // Update basic flow information
-        $flow->update([
+        $updateData = [
             'name' => $validated['name'],
             'title' => $validated['title'] ?? null,
-            'menu_text' => $validated['menu_text'],
+            'menu_text' => $validated['menu_text'] ?? '',
             'description' => $validated['description'] ?? '',
-        ]);
+            'flow_type' => $validated['flow_type'],
+            'dynamic_config' => $validated['dynamic_config'] ?? null,
+        ];
+        
+        $flow->update($updateData);
 
-        // Handle options if provided
-        if (isset($validated['options'])) {
+        // Handle options if provided (only for static flows)
+        if (isset($validated['options']) && $flow->flow_type === 'static') {
             // Validate that all next_flow_id values belong to the same USSD (except special values)
             foreach ($validated['options'] as $optionData) {
                 if (isset($optionData['next_flow_id']) && $optionData['next_flow_id'] && $optionData['next_flow_id'] !== 'end_session') {
@@ -390,8 +460,8 @@ class USSDController extends Controller
                  ]);
              }
             
-            // Update menu_text to match the new options
-            $flow->updateMenuTextFromOptions();
+            // Note: We don't auto-generate menu_text anymore to allow custom formatting
+            // The menu_text is now managed manually by the user
         }
 
         // Reload the flow with options
@@ -627,5 +697,281 @@ class USSDController extends Controller
             'flow' => $flow->load('options'),
             'message' => 'Option deleted successfully!'
         ]);
+    }
+
+    /**
+     * Switch USSD to live production mode
+     */
+    public function goLive(USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $environmentService = new EnvironmentManagementService();
+        $result = $environmentService->switchToProduction($ussd);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Switch USSD back to testing mode
+     */
+    public function goTesting(USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $environmentService = new EnvironmentManagementService();
+        $result = $environmentService->switchToTesting($ussd);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Get production status for USSD
+     */
+    public function getProductionStatus(USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $environmentService = new EnvironmentManagementService();
+        $status = $environmentService->getEnvironmentStatus($ussd);
+
+        return response()->json([
+            'success' => true,
+            'status' => $status
+        ]);
+    }
+
+    /**
+     * Show environment overview page
+     */
+    public function environmentOverview()
+    {
+        $ussds = Auth::user()->ussds()->with(['business'])->latest()->get();
+        
+        $environmentService = new EnvironmentManagementService();
+        $ussdsWithStatus = [];
+        
+        foreach ($ussds as $ussd) {
+            $ussdsWithStatus[] = [
+                'ussd' => $ussd,
+                'environmentStatus' => $environmentService->getEnvironmentStatus($ussd)
+            ];
+        }
+
+        return Inertia::render('Environment/Overview', [
+            'ussdsWithStatus' => $ussdsWithStatus
+        ]);
+    }
+
+    /**
+     * Show environment management page
+     */
+    public function environment(USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $environmentService = new EnvironmentManagementService();
+        $environmentStatus = $environmentService->getEnvironmentStatus($ussd);
+
+        // Load relationships and ensure gateway_credentials are accessible
+        // Laravel's encrypted:array cast automatically decrypts when accessing the attribute
+        $ussd->load(['business']);
+        
+        // Access gateway_credentials to trigger decryption (encrypted cast handles this)
+        // This ensures the decrypted value is available when Inertia serializes the model
+        $gatewayCredentials = $ussd->gateway_credentials;
+        
+        return Inertia::render('USSD/Environment', [
+            'ussd' => $ussd,
+            'environmentStatus' => $environmentStatus
+        ]);
+    }
+
+    /**
+     * Show production management page
+     */
+    public function production(USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        return Inertia::render('USSD/Production', [
+            'ussd' => $ussd->load(['business'])
+        ]);
+    }
+
+    /**
+     * Configure gateway for USSD
+     */
+    public function configureGateway(Request $request, USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'gateway_provider' => 'required|string|in:africastalking,hubtel,twilio',
+            'api_key' => 'required|string|min:10',
+            'username' => 'required|string|min:3',
+            'live_ussd_code' => 'nullable|string|max:50',
+            'testing_ussd_code' => 'nullable|string|max:50',
+        ]);
+
+        try {
+            // Encrypt and store credentials
+            $credentials = [
+                'api_key' => $validated['api_key'],
+                'username' => $validated['username'],
+            ];
+
+            // Update the model attributes
+            $ussd->gateway_provider = $validated['gateway_provider'];
+            
+            // Set credentials - the mutator and encrypted:array cast will handle encryption
+            $ussd->gateway_credentials = $credentials;
+            
+            // Log before save to debug
+            Log::debug('Before save - credentials being set', [
+                'ussd_id' => $ussd->id,
+                'credentials' => $credentials,
+                'credentials_type' => gettype($credentials),
+                'is_array' => is_array($credentials)
+            ]);
+            
+            if (isset($validated['live_ussd_code'])) {
+                $ussd->live_ussd_code = $validated['live_ussd_code'];
+            }
+            if (isset($validated['testing_ussd_code'])) {
+                $ussd->testing_ussd_code = $validated['testing_ussd_code'];
+            }
+            
+            // Save the model
+            $saved = $ussd->save();
+            
+            // Log after save to verify
+            Log::debug('After save - checking raw value', [
+                'ussd_id' => $ussd->id,
+                'raw_value_exists' => !empty($ussd->getRawOriginal('gateway_credentials')),
+                'raw_value_length' => strlen($ussd->getRawOriginal('gateway_credentials') ?? ''),
+            ]);
+            
+            if (!$saved) {
+                throw new \Exception('Failed to save gateway configuration to database');
+            }
+
+            Log::info('Gateway configured', [
+                'ussd_id' => $ussd->id,
+                'gateway_provider' => $validated['gateway_provider'],
+                'user_id' => Auth::id(),
+                'has_credentials' => !empty($ussd->gateway_credentials)
+            ]);
+
+            // Refresh the USSD model to get updated data from database
+            $ussd->refresh();
+            
+            // Verify the credentials were saved correctly
+            $savedCredentials = $ussd->gateway_credentials;
+            $verification = [
+                'has_raw_value' => !empty($ussd->getRawOriginal('gateway_credentials') ?? null),
+                'is_array' => is_array($savedCredentials),
+                'has_api_key' => isset($savedCredentials['api_key']) && !empty($savedCredentials['api_key']),
+                'has_username' => isset($savedCredentials['username']) && !empty($savedCredentials['username']),
+            ];
+            
+            Log::info('Gateway configuration saved and verified', [
+                'ussd_id' => $ussd->id,
+                'verification' => $verification
+            ]);
+            
+            // Return response with decrypted credentials for form pre-population
+            // Note: gateway_credentials will be automatically decrypted by Laravel's encrypted cast
+            return response()->json([
+                'success' => true,
+                'message' => 'Gateway configured successfully!',
+                'ussd' => [
+                    'id' => $ussd->id,
+                    'gateway_provider' => $ussd->gateway_provider,
+                    'gateway_credentials' => $savedCredentials, // Will be decrypted automatically
+                    'live_ussd_code' => $ussd->live_ussd_code,
+                    'testing_ussd_code' => $ussd->testing_ussd_code,
+                    'webhook_url' => $ussd->webhook_url,
+                    'callback_url' => $ussd->callback_url,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to configure gateway', [
+                'ussd_id' => $ussd->id,
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to configure gateway: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Configure webhook URL for USSD
+     */
+    public function configureWebhook(Request $request, USSD $ussd)
+    {
+        // Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'webhook_url' => 'required|url|max:500',
+            'callback_url' => 'nullable|url|max:500',
+        ]);
+
+        try {
+            $ussd->update([
+                'webhook_url' => $validated['webhook_url'],
+                'callback_url' => $validated['callback_url'] ?? $validated['webhook_url'],
+            ]);
+
+            Log::info('Webhook configured', [
+                'ussd_id' => $ussd->id,
+                'webhook_url' => $validated['webhook_url'],
+                'user_id' => Auth::id()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook URL configured successfully!',
+                'ussd' => $ussd->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to configure webhook', [
+                'ussd_id' => $ussd->id,
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to configure webhook: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

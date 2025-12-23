@@ -27,71 +27,156 @@
                         </div>
 
                         <!-- USSD List -->
-                        <div v-if="ussds.length > 0" class="space-y-4">
-                            <div
-                                v-for="ussd in ussds"
-                                :key="ussd.id"
-                                class="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
-                            >
-                                <div class="flex justify-between items-start">
-                                    <div class="flex-1">
-                                        <div class="flex items-center space-x-3 mb-2">
-                                            <h4 class="text-lg font-semibold text-gray-900">{{ ussd.name }}</h4>
-                                            <span
-                                                :class="[
-                                                    'px-2 py-1 text-xs font-medium rounded-full',
-                                                    ussd.is_active
-                                                        ? 'bg-green-100 text-green-800'
-                                                        : 'bg-red-100 text-red-800'
-                                                ]"
-                                            >
-                                                {{ ussd.is_active ? 'Active' : 'Inactive' }}
-                                            </span>
-                                        </div>
-                                        <p class="text-gray-600 mb-3">{{ ussd.description }}</p>
-                                        <div class="flex items-center space-x-4 text-sm text-gray-500">
-                                            <span class="font-medium">Pattern: {{ ussd.pattern }}</span>
-                                            <span>Business: {{ ussd.business?.business_name }}</span>
-                                            <span>Created: {{ formatDate(ussd.created_at) }}</span>
+                        <div v-if="filteredUssds.length > 0" class="space-y-4">
+                            <!-- Production USSDs Section -->
+                            <div v-if="productionUssds.length > 0" class="mb-6">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                                    <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                                    Production Services ({{ productionUssds.length }})
+                                </h4>
+                                <div class="space-y-4">
+                                    <div
+                                        v-for="ussd in productionUssds"
+                                        :key="ussd.id"
+                                        class="border-2 border-green-200 bg-green-50 rounded-lg p-6 hover:shadow-md transition-shadow"
+                                    >
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <div class="flex items-center space-x-3 mb-2">
+                                                    <h4 class="text-lg font-semibold text-gray-900">{{ ussd.name }}</h4>
+                                                    <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-600 text-white">
+                                                        Production
+                                                    </span>
+                                                    <span
+                                                        :class="[
+                                                            'px-2 py-1 text-xs font-medium rounded-full',
+                                                            ussd.is_active
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : 'bg-red-100 text-red-800'
+                                                        ]"
+                                                    >
+                                                        {{ ussd.is_active ? 'Active' : 'Inactive' }}
+                                                    </span>
+                                                </div>
+                                                <p class="text-gray-600 mb-3">{{ ussd.description }}</p>
+                                                <div class="flex items-center space-x-4 text-sm text-gray-500">
+                                                    <span class="font-medium">USSD Code: {{ getCurrentUssdCode(ussd) }}</span>
+                                                    <span>Business: {{ ussd.business?.business_name }}</span>
+                                                    <span>Created: {{ formatDate(ussd.created_at) }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <Link
+                                                    :href="route('ussd.show', ussd.id)"
+                                                    class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                >
+                                                    View
+                                                </Link>
+                                                <Link
+                                                    :href="route('ussd.edit', ussd.id)"
+                                                    class="text-green-600 hover:text-green-800 text-sm font-medium"
+                                                >
+                                                    Edit
+                                                </Link>
+                                                <button
+                                                    @click="toggleStatus(ussd)"
+                                                    :class="[
+                                                        'text-sm font-medium',
+                                                        ussd.is_active
+                                                            ? 'text-orange-600 hover:text-orange-800'
+                                                            : 'text-green-600 hover:text-green-800'
+                                                    ]"
+                                                >
+                                                    {{ ussd.is_active ? 'Deactivate' : 'Activate' }}
+                                                </button>
+                                                <button
+                                                    @click="deleteUSSD(ussd)"
+                                                    class="text-red-600 hover:text-red-800 text-sm font-medium"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="flex items-center space-x-2">
-                                        <Link
-                                            :href="route('ussd.show', ussd.id)"
-                                            class="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                                        >
-                                            View
-                                        </Link>
-                                        <Link
-                                            :href="route('ussd.edit', ussd.id)"
-                                            class="text-green-600 hover:text-green-800 text-sm font-medium"
-                                        >
-                                            Edit
-                                        </Link>
-                                        <button
-                                            @click="toggleStatus(ussd)"
-                                            :class="[
-                                                'text-sm font-medium',
-                                                ussd.is_active
-                                                    ? 'text-orange-600 hover:text-orange-800'
-                                                    : 'text-green-600 hover:text-green-800'
-                                            ]"
-                                        >
-                                            {{ ussd.is_active ? 'Deactivate' : 'Activate' }}
-                                        </button>
-                                        <button
-                                            @click="deleteUSSD(ussd)"
-                                            class="text-red-600 hover:text-red-800 text-sm font-medium"
-                                        >
-                                            Delete
-                                        </button>
+                                </div>
+                            </div>
+
+                            <!-- Testing USSDs Section -->
+                            <div v-if="testingUssds.length > 0">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                                    <span class="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
+                                    Testing Services ({{ testingUssds.length }})
+                                </h4>
+                                <div class="space-y-4">
+                                    <div
+                                        v-for="ussd in testingUssds"
+                                        :key="ussd.id"
+                                        class="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+                                    >
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <div class="flex items-center space-x-3 mb-2">
+                                                    <h4 class="text-lg font-semibold text-gray-900">{{ ussd.name }}</h4>
+                                                    <span class="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">
+                                                        Testing
+                                                    </span>
+                                                    <span
+                                                        :class="[
+                                                            'px-2 py-1 text-xs font-medium rounded-full',
+                                                            ussd.is_active
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : 'bg-red-100 text-red-800'
+                                                        ]"
+                                                    >
+                                                        {{ ussd.is_active ? 'Active' : 'Inactive' }}
+                                                    </span>
+                                                </div>
+                                                <p class="text-gray-600 mb-3">{{ ussd.description }}</p>
+                                                <div class="flex items-center space-x-4 text-sm text-gray-500">
+                                                    <span class="font-medium">USSD Code: {{ getCurrentUssdCode(ussd) }}</span>
+                                                    <span>Business: {{ ussd.business?.business_name }}</span>
+                                                    <span>Created: {{ formatDate(ussd.created_at) }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <Link
+                                                    :href="route('ussd.show', ussd.id)"
+                                                    class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                >
+                                                    View
+                                                </Link>
+                                                <Link
+                                                    :href="route('ussd.edit', ussd.id)"
+                                                    class="text-green-600 hover:text-green-800 text-sm font-medium"
+                                                >
+                                                    Edit
+                                                </Link>
+                                                <button
+                                                    @click="toggleStatus(ussd)"
+                                                    :class="[
+                                                        'text-sm font-medium',
+                                                        ussd.is_active
+                                                            ? 'text-orange-600 hover:text-orange-800'
+                                                            : 'text-green-600 hover:text-green-800'
+                                                    ]"
+                                                >
+                                                    {{ ussd.is_active ? 'Deactivate' : 'Activate' }}
+                                                </button>
+                                                <button
+                                                    @click="deleteUSSD(ussd)"
+                                                    class="text-red-600 hover:text-red-800 text-sm font-medium"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Empty State -->
-                        <div v-else class="text-center py-12">
+                        <div v-if="filteredUssds.length === 0" class="text-center py-12">
                             <div class="text-gray-400 mb-4">
                                 <svg class="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -114,14 +199,32 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
-defineProps({
+const props = defineProps({
     ussds: {
         type: Array,
         required: true
     }
+})
+
+// Separate USSDs by environment
+const productionUssds = computed(() => {
+    return props.ussds.filter(ussd => ussd.environment?.name === 'production')
+})
+
+const testingUssds = computed(() => {
+    return props.ussds.filter(ussd => ussd.environment?.name !== 'production')
+})
+
+// Show production if any exist, otherwise show only testing
+const filteredUssds = computed(() => {
+    if (productionUssds.value.length > 0) {
+        return [...productionUssds.value, ...testingUssds.value]
+    }
+    return testingUssds.value
 })
 
 const formatDate = (dateString) => {
@@ -130,6 +233,17 @@ const formatDate = (dateString) => {
         month: 'short',
         day: 'numeric'
     })
+}
+
+const getCurrentUssdCode = (ussd) => {
+    // Use the current USSD code based on environment
+    if (ussd.environment?.name === 'production') {
+        return ussd.live_ussd_code || 'Not configured'
+    } else if (ussd.environment?.name === 'testing') {
+        return ussd.testing_ussd_code || 'Not configured'
+    }
+    // Fallback to testing code, then live code, then pattern, then 'Not configured'
+    return ussd.testing_ussd_code || ussd.live_ussd_code || ussd.pattern || 'Not configured'
 }
 
 const toggleStatus = (ussd) => {

@@ -239,6 +239,79 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Billing Information -->
+                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div class="p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-medium text-gray-900">Billing Information</h3>
+                                <button @click="openBillingModal" class="text-sm text-blue-600 hover:text-blue-800">
+                                    Update
+                                </button>
+                            </div>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Billing Method</label>
+                                    <p class="mt-1 text-sm text-gray-900">
+                                        <span :class="getBillingMethodBadgeClass(business.billing_method)">
+                                            {{ formatBillingMethod(business.billing_method) }}
+                                        </span>
+                                    </p>
+                                </div>
+                                
+                                <!-- Prepaid Info -->
+                                <template v-if="business.billing_method === 'prepaid'">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Account Balance</label>
+                                        <p class="mt-1 text-sm text-gray-900">
+                                            {{ formatCurrency(business.account_balance, business.billing_currency) }}
+                                        </p>
+                                    </div>
+                                </template>
+
+                                <!-- Postpaid Info -->
+                                <template v-if="business.billing_method === 'postpaid'">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Credit Limit</label>
+                                        <p class="mt-1 text-sm text-gray-900">
+                                            {{ formatCurrency(business.credit_limit, business.billing_currency) }}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Payment Terms</label>
+                                        <p class="mt-1 text-sm text-gray-900">
+                                            Net {{ business.payment_terms_days || 15 }} days
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Billing Cycle</label>
+                                        <p class="mt-1 text-sm text-gray-900">
+                                            {{ formatBillingCycle(business.billing_cycle) }}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Account Status</label>
+                                        <p class="mt-1">
+                                            <span :class="business.account_suspended ? 'text-red-600' : 'text-green-600'" class="text-sm font-medium">
+                                                {{ business.account_suspended ? 'Suspended' : 'Active' }}
+                                            </span>
+                                        </p>
+                                    </div>
+                                </template>
+
+                                <!-- Pending Change Request -->
+                                <div v-if="business.billing_change_request" class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                    <p class="text-sm font-medium text-yellow-800">Pending Change Request</p>
+                                    <p class="text-xs text-yellow-700 mt-1">
+                                        Requested: {{ formatBillingMethod(business.billing_change_request) }}
+                                    </p>
+                                    <p v-if="business.billing_change_reason" class="text-xs text-yellow-700 mt-1">
+                                        Reason: {{ business.billing_change_reason }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -311,6 +384,81 @@
                 </div>
             </div>
         </div>
+
+        <!-- Billing Method Update Modal -->
+        <div v-if="showBillingModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+                <div class="mt-3">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Update Billing Method</h3>
+                    <form @submit.prevent="updateBillingMethod">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Billing Method *</label>
+                            <select
+                                v-model="billingForm.billing_method"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                required
+                            >
+                                <option value="prepaid">Prepaid</option>
+                                <option value="postpaid">Pay as You Use</option>
+                            </select>
+                        </div>
+
+                        <!-- Postpaid Options -->
+                        <div v-if="billingForm.billing_method === 'postpaid'" class="mb-4 space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Credit Limit</label>
+                                <input
+                                    v-model="billingForm.credit_limit"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Enter credit limit"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Payment Terms (Days)</label>
+                                <input
+                                    v-model="billingForm.payment_terms_days"
+                                    type="number"
+                                    min="1"
+                                    max="365"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g., 15 for Net 15"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Billing Cycle</label>
+                                <select
+                                    v-model="billingForm.billing_cycle"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end space-x-3">
+                            <button
+                                type="button"
+                                @click="closeBillingModal"
+                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            >
+                                Update
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </AdminLayout>
 </template>
 
@@ -326,6 +474,7 @@ const props = defineProps({
 const showApprovalModal = ref(false)
 const showRejectionModal = ref(false)
 const showSuspensionModal = ref(false)
+const showBillingModal = ref(false)
 
 const approvalForm = ref({
     notes: ''
@@ -337,6 +486,13 @@ const rejectionForm = ref({
 
 const suspensionForm = ref({
     reason: ''
+})
+
+const billingForm = ref({
+    billing_method: '',
+    credit_limit: '',
+    payment_terms_days: '',
+    billing_cycle: 'monthly',
 })
 
 const formatDate = (date) => {
@@ -436,5 +592,84 @@ const suspendBusiness = () => {
             suspensionForm.value.reason = ''
         }
     })
+}
+
+const updateBillingMethod = () => {
+    const payload = {
+        billing_method: billingForm.value.billing_method,
+        credit_limit: billingForm.value.credit_limit !== '' && billingForm.value.credit_limit !== null
+            ? Number(billingForm.value.credit_limit)
+            : null,
+        payment_terms_days: billingForm.value.payment_terms_days !== '' && billingForm.value.payment_terms_days !== null
+            ? Number(billingForm.value.payment_terms_days)
+            : null,
+        billing_cycle: billingForm.value.billing_cycle || 'monthly',
+    }
+
+    router.post(route('admin.businesses.update-billing-method', props.business.id), payload, {
+        onSuccess: () => {
+            closeBillingModal()
+        },
+    })
+}
+
+const openBillingModal = () => {
+    billingForm.value = {
+        billing_method: props.business.billing_method || 'postpaid',
+        credit_limit: props.business.credit_limit ?? '',
+        payment_terms_days: props.business.payment_terms_days ?? 15,
+        billing_cycle: props.business.billing_cycle || 'monthly',
+    }
+    showBillingModal.value = true
+}
+
+const closeBillingModal = () => {
+    showBillingModal.value = false
+    // Reset form back to current business values
+    billingForm.value = {
+        billing_method: props.business.billing_method || 'postpaid',
+        credit_limit: props.business.credit_limit ?? '',
+        payment_terms_days: props.business.payment_terms_days ?? 15,
+        billing_cycle: props.business.billing_cycle || 'monthly',
+    }
+}
+
+const formatBillingMethod = (method) => {
+    if (!method) return 'Not Set'
+    const methods = {
+        'prepaid': 'Prepaid',
+        'postpaid': 'Pay as You Use'
+    }
+    return methods[method] || method
+}
+
+const getBillingMethodBadgeClass = (method) => {
+    const classes = {
+        'prepaid': 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800',
+        'postpaid': 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800'
+    }
+    return classes[method] || 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800'
+}
+
+const formatCurrency = (amount, currency = 'NGN') => {
+    if (amount === null || amount === undefined) return '0.00'
+    const currencySymbols = {
+        'NGN': '₦',
+        'USD': '$',
+        'GBP': '£',
+        'EUR': '€'
+    }
+    const symbol = currencySymbols[currency] || currency
+    return `${symbol}${parseFloat(amount).toFixed(2)}`
+}
+
+const formatBillingCycle = (cycle) => {
+    if (!cycle) return 'Monthly'
+    const cycles = {
+        'daily': 'Daily',
+        'weekly': 'Weekly',
+        'monthly': 'Monthly'
+    }
+    return cycles[cycle] || cycle
 }
 </script>
