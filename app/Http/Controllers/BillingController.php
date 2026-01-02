@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\BillingService;
+use Inertia\Inertia;
 use App\Models\Business;
+use App\Models\Environment;
 use App\Models\USSDSession;
-use App\Models\BillingChangeRequest;
 use App\Enums\BillingMethod;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\Auth;
+use App\Services\BillingService;
+use App\Services\PaymentService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Models\BillingChangeRequest;
+use Illuminate\Support\Facades\Auth;
 
 class BillingController extends Controller
 {
@@ -28,7 +31,46 @@ class BillingController extends Controller
     {
         $business = Auth::user()->primaryBusiness;
         $period = $request->get('period', 'month');
-        $billingFilter = $request->get('billing_filter', 'all'); // all, live, simulated
+        
+        // Get billing filter from request
+        $billingFilter = $request->get('billing_filter');
+        
+        // Normalize filter value: 'testing' is an alias for 'simulated'
+        if ($billingFilter === 'testing') {
+            $billingFilter = 'simulated';
+        }
+        
+        // If no filter specified, determine default based on actual billing data
+        if (!$billingFilter || $billingFilter === 'all') {
+            // Check what billing statuses exist for this business
+            $liveCount = USSDSession::whereHas('ussd', function($query) use ($business) {
+                $query->where('business_id', $business->id);
+            })
+            ->where('is_billed', true)
+            ->whereIn('billing_status', ['charged', 'invoiced'])
+            ->count();
+            
+            $simulatedCount = USSDSession::whereHas('ussd', function($query) use ($business) {
+                $query->where('business_id', $business->id);
+            })
+            ->where('is_billed', true)
+            ->where('billing_status', 'simulated')
+            ->count();
+            
+            // Default to the filter with more sessions, or 'live' if equal/zero
+            $billingFilter = $liveCount >= $simulatedCount ? 'live' : 'simulated';
+        }
+        
+        $ussdEnvironment = $billingFilter === 'live' ? 'live' : 'testing';
+        
+        Log::info('Billing Dashboard Filter', [
+            'requested_filter' => $request->get('billing_filter'),
+            'final_filter' => $billingFilter,
+            'period' => $period,
+            'ussd_environment' => $ussdEnvironment,
+            'business_id' => $business->id,
+            'query_params' => $request->all(),
+        ]);
 
         // Get real-time billing stats
         $billingStats = $this->billingService->getRealTimeStats($business);
@@ -38,23 +80,87 @@ class BillingController extends Controller
             $query->where('business_id', $business->id);
         })
         ->where('is_billed', true)
-        ->with('ussd');
+        ->with(['ussd', 'environment']);
 
-        // Apply billing status filter
         if ($billingFilter === 'live') {
-            $sessionsQuery->where('billing_status', 'charged');
+            $sessionsQuery->whereIn('billing_status', ['charged', 'invoiced']);
         } elseif ($billingFilter === 'simulated') {
             $sessionsQuery->where('billing_status', 'simulated');
         }
 
+        // Apply period filter using proper datetime ranges to avoid timezone issues
+        if ($period === 'today') {
+            $sessionsQuery->whereBetween('billed_at', [
+                now()->startOfDay(),
+                now()->endOfDay()
+            ]);
+        } elseif ($period === 'week') {
+            $sessionsQuery->whereBetween('billed_at', [
+                now()->startOfWeek(),
+                now()->endOfWeek()
+            ]);
+        } elseif ($period === 'month') {
+            $sessionsQuery->whereBetween('billed_at', [
+                now()->startOfMonth(),
+                now()->endOfMonth()
+            ]);
+        } elseif ($period === 'year') {
+            $sessionsQuery->whereBetween('billed_at', [
+                now()->startOfYear(),
+                now()->endOfYear()
+            ]);
+        }
+                
+        if (in_array($period, ['today', 'week', 'month', 'year'])) {
+            $sessionsQuery->whereNotNull('billed_at');
+        }
+
+        // Clone query for SQL logging before executing
+        $queryClone = clone $sessionsQuery;
+        $sql = $queryClone->toSql();
+        $bindings = $queryClone->getBindings();
+        
         $recentSessions = $sessionsQuery
         ->orderBy('billed_at', 'desc')
         ->limit(50)
         ->get();
+        
+        // Get all unique billing statuses for this business to see what exists
+        $allStatuses = USSDSession::whereHas('ussd', function($query) use ($business) {
+            $query->where('business_id', $business->id);
+        })
+        ->where('is_billed', true)
+        ->pluck('billing_status')
+        ->unique()
+        ->toArray();
+        
+        // Count sessions by status for debugging
+        $statusCounts = USSDSession::whereHas('ussd', function($query) use ($business) {
+            $query->where('business_id', $business->id);
+        })
+        ->where('is_billed', true)
+        ->selectRaw('billing_status, COUNT(*) as count')
+        ->groupBy('billing_status')
+        ->pluck('count', 'billing_status')
+        ->toArray();
+        
+        Log::info('Billing Dashboard Query Results', [
+            'filter' => $billingFilter,
+            'period' => $period,
+            'sessions_count' => $recentSessions->count(),
+            'all_available_statuses' => $allStatuses,
+            'status_counts' => $statusCounts,
+            'returned_billing_statuses' => $recentSessions->pluck('billing_status')->unique()->toArray(),
+            'sample_environment_ids' => $recentSessions->pluck('environment_id')->unique()->toArray(),
+            'sample_billed_at_dates' => $recentSessions->take(5)->pluck('billed_at')->toArray(),
+            'sql_query' => $sql,
+            'sql_bindings' => $bindings,
+        ]);
 
         // Get available payment gateways
-        $paymentService = new \App\Services\PaymentService();
+        $paymentService = new PaymentService();
         $availableGateways = $paymentService->getAvailableGateways();
+
 
         return Inertia::render('Billing/Dashboard', [
             'billingStats' => $billingStats,
@@ -62,6 +168,8 @@ class BillingController extends Controller
             'sessionPrice' => $business->session_price ?? 0.02,
             'availableGateways' => $availableGateways,
             'billingFilter' => $billingFilter,
+            'period' => $period,
+            'ussdEnvironment' => $ussdEnvironment,
             'testBalance' => $business->test_balance ?? 0, // Add test balance for partitioning
             'currency' => $business->billing_currency ?? config('app.currency', 'NGN'),
             'currencySymbol' => config('app.currency_symbol', '₦'),
@@ -75,6 +183,12 @@ class BillingController extends Controller
     {
         $business = Auth::user()->primaryBusiness;
         $billingFilter = $request->get('billing_filter', 'all');
+        
+        // Normalize filter value: 'testing' is an alias for 'simulated'
+        if ($billingFilter === 'testing') {
+            $billingFilter = 'simulated';
+        }
+        
         $period = $request->get('period', 'month');
         $page = $request->get('page', 1);
         $perPage = $request->get('per_page', 20);
@@ -87,24 +201,41 @@ class BillingController extends Controller
 
         // Apply billing status filter
         if ($billingFilter === 'live') {
-            $sessionsQuery->where('billing_status', 'charged');
+            $sessionsQuery->whereIn('billing_status', ['charged', 'invoiced']);
         } elseif ($billingFilter === 'simulated') {
             $sessionsQuery->where('billing_status', 'simulated');
         }
+        
+        // Ensure billed_at is not null for period filters
+        if (in_array($period, ['today', 'week', 'month', 'year'])) {
+            $sessionsQuery->whereNotNull('billed_at');
+        }
 
-        // Apply period filter
+        // Apply period filter using proper datetime ranges to avoid timezone issues
         switch ($period) {
             case 'today':
-                $sessionsQuery->whereDate('billed_at', today());
+                $sessionsQuery->whereBetween('billed_at', [
+                    now()->startOfDay(),
+                    now()->endOfDay()
+                ]);
                 break;
             case 'week':
-                $sessionsQuery->whereBetween('billed_at', [now()->startOfWeek(), now()->endOfWeek()]);
+                $sessionsQuery->whereBetween('billed_at', [
+                    now()->startOfWeek(),
+                    now()->endOfWeek()
+                ]);
                 break;
             case 'month':
-                $sessionsQuery->whereMonth('billed_at', now()->month);
+                $sessionsQuery->whereBetween('billed_at', [
+                    now()->startOfMonth(),
+                    now()->endOfMonth()
+                ]);
                 break;
             case 'year':
-                $sessionsQuery->whereYear('billed_at', now()->year);
+                $sessionsQuery->whereBetween('billed_at', [
+                    now()->startOfYear(),
+                    now()->endOfYear()
+                ]);
                 break;
         }
 

@@ -2,6 +2,8 @@
 import AdminLayout from '@/Layouts/AdminLayout.vue'
 import { Head, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
+import FormModal from '@/Components/FormModal.vue'
+import { showToast } from '@/helpers/toast'
 
 const props = defineProps({
   invoices: Object,
@@ -12,6 +14,14 @@ const props = defineProps({
 const selectedStatus = ref(props.filters?.status || 'all')
 const businessSearch = ref('')
 const selectedBusinessId = ref('')
+
+// Payment modal state
+const showPaymentModal = ref(false)
+const selectedInvoice = ref(null)
+const paymentAmount = ref('')
+const paymentReference = ref('')
+const paymentMethod = ref('manual')
+const isSubmitting = ref(false)
 
 const statusOptions = [
   { value: 'all', label: 'All statuses' },
@@ -31,12 +41,20 @@ const applyFilters = () => {
 
 const generateInvoice = () => {
   if (!selectedBusinessId.value) {
-    alert('Please select a business to generate an invoice for.')
+    showToast.warning('Please select a business to generate an invoice for.')
     return
   }
 
   router.post(route('admin.invoices.generate'), {
     business_id: selectedBusinessId.value,
+  }, {
+    onSuccess: () => {
+      showToast.success('Invoice generated successfully.')
+    },
+    onError: (errors) => {
+      const errorMessage = errors.message || 'Failed to generate invoice. Please try again.'
+      showToast.error(errorMessage)
+    }
   })
 }
 
@@ -49,17 +67,50 @@ const filteredBusinesses = computed(() => {
   )
 })
 
-const markPaid = (invoice) => {
-  const amount = prompt(`Enter payment amount for invoice ${invoice.invoice_number}`, invoice.balance_due)
-  if (!amount) return
+const openPaymentModal = (invoice) => {
+  selectedInvoice.value = invoice
+  paymentAmount.value = invoice.balance_due || ''
+  paymentReference.value = ''
+  paymentMethod.value = 'manual'
+  showPaymentModal.value = true
+}
 
-  const reference = prompt('Optional: enter payment reference (e.g. transaction ID)', '')
-  const paymentMethod = prompt('Optional: enter payment method (e.g. bank_transfer, manual)', 'manual')
+const closePaymentModal = () => {
+  showPaymentModal.value = false
+  selectedInvoice.value = null
+  paymentAmount.value = ''
+  paymentReference.value = ''
+  paymentMethod.value = 'manual'
+  isSubmitting.value = false
+}
 
-  router.post(route('admin.invoices.mark-paid', invoice.id), {
-    amount: parseFloat(amount),
-    payment_method: paymentMethod || null,
-    reference: reference || null,
+const confirmPayment = () => {
+  if (!selectedInvoice.value) return
+
+  // Validate amount
+  const amount = parseFloat(paymentAmount.value)
+  if (!amount || amount <= 0) {
+    showToast.error('Please enter a valid payment amount.')
+    return
+  }
+
+  isSubmitting.value = true
+
+  router.post(route('admin.invoices.mark-paid', selectedInvoice.value.id), {
+    amount: amount,
+    payment_method: paymentMethod.value || null,
+    reference: paymentReference.value || null,
+  }, {
+    preserveScroll: true,
+    onSuccess: () => {
+      showToast.success(`Payment of ${selectedInvoice.value.currency} ${amount.toFixed(2)} recorded successfully for invoice ${selectedInvoice.value.invoice_number}.`)
+      closePaymentModal()
+    },
+    onError: (errors) => {
+      const errorMessage = errors.message || 'Failed to record payment. Please try again.'
+      showToast.error(errorMessage)
+      isSubmitting.value = false
+    }
   })
 }
 </script>
@@ -203,7 +254,7 @@ const markPaid = (invoice) => {
                     <button
                       v-if="invoice.status !== 'paid' && Number(invoice.balance_due) > 0"
                       type="button"
-                      @click="markPaid(invoice)"
+                      @click="openPaymentModal(invoice)"
                       class="inline-flex items-center px-3 py-1.5 border border-green-600 text-green-700 text-xs font-medium rounded-md hover:bg-green-50"
                     >
                       Mark Paid
@@ -247,6 +298,86 @@ const markPaid = (invoice) => {
         </div>
       </div>
     </div>
+
+    <!-- Payment Confirmation Modal -->
+    <FormModal
+      :show="showPaymentModal"
+      title="Record Payment"
+      confirm-text="Confirm Payment"
+      cancel-text="Cancel"
+      type="success"
+      :loading="isSubmitting"
+      @confirm="confirmPayment"
+      @cancel="closePaymentModal"
+    >
+      <div v-if="selectedInvoice" class="space-y-4">
+        <div class="bg-blue-50 border border-blue-200 rounded-md p-3">
+          <p class="text-sm text-blue-800">
+            <span class="font-semibold">Invoice:</span> {{ selectedInvoice.invoice_number }}
+          </p>
+          <p class="text-sm text-blue-800 mt-1">
+            <span class="font-semibold">Business:</span> {{ selectedInvoice.business?.business_name || `Business #${selectedInvoice.business_id}` }}
+          </p>
+          <p class="text-sm text-blue-800 mt-1">
+            <span class="font-semibold">Balance Due:</span> {{ selectedInvoice.currency }} {{ Number(selectedInvoice.balance_due || 0).toFixed(2) }}
+          </p>
+        </div>
+
+        <div>
+          <label for="payment-amount" class="block text-sm font-medium text-gray-700 mb-1">
+            Payment Amount <span class="text-red-500">*</span>
+          </label>
+          <input
+            id="payment-amount"
+            v-model="paymentAmount"
+            type="number"
+            step="0.01"
+            min="0.01"
+            :max="selectedInvoice.balance_due"
+            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            placeholder="Enter payment amount"
+            required
+          />
+          <p class="mt-1 text-xs text-gray-500">
+            Maximum: {{ selectedInvoice.currency }} {{ Number(selectedInvoice.balance_due || 0).toFixed(2) }}
+          </p>
+        </div>
+
+        <div>
+          <label for="payment-method" class="block text-sm font-medium text-gray-700 mb-1">
+            Payment Method
+          </label>
+          <select
+            id="payment-method"
+            v-model="paymentMethod"
+            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            <option value="manual">Manual</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="card">Card Payment</option>
+            <option value="cash">Cash</option>
+            <option value="cheque">Cheque</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="payment-reference" class="block text-sm font-medium text-gray-700 mb-1">
+            Payment Reference (Optional)
+          </label>
+          <input
+            id="payment-reference"
+            v-model="paymentReference"
+            type="text"
+            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            placeholder="e.g. Transaction ID, Receipt Number"
+          />
+          <p class="mt-1 text-xs text-gray-500">
+            Transaction ID, receipt number, or other reference for this payment
+          </p>
+        </div>
+      </div>
+    </FormModal>
   </AdminLayout>
 </template>
 

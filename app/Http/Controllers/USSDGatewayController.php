@@ -109,5 +109,128 @@ class USSDGatewayController extends Controller
             'response' => $response
         ]);
     }
+
+    /**
+     * Handle AfricasTalking Events (session end notifications)
+     * 
+     * AfricasTalking sends POST requests to this endpoint when a USSD session ends.
+     * Events include: session duration, cost, status, and other metadata.
+     * 
+     * @param Request $request
+     * @return Response
+     */
+    public function handleEvents(Request $request)
+    {
+        try {
+            // Log the event for debugging
+            Log::info('AfricasTalking Event Received', [
+                'payload' => $request->all(),
+                'headers' => $request->headers->all(),
+            ]);
+
+            // Extract event data (AfricasTalking sends different fields)
+            $sessionId = $request->input('sessionId') ?? $request->input('session_id');
+            $phoneNumber = $request->input('phoneNumber') ?? $request->input('phone_number');
+            $serviceCode = $request->input('serviceCode') ?? $request->input('service_code');
+            $status = $request->input('status') ?? $request->input('sessionStatus');
+            $duration = $request->input('duration') ?? $request->input('sessionDuration');
+            $actualCost = $request->input('cost') ?? $request->input('sessionCost'); // Actual cost charged by AfricasTalking
+            $network = $request->input('network') ?? $request->input('networkCode');
+            $errorMessage = $request->input('errorMessage') ?? $request->input('error_message');
+
+            // Find the session by AfricasTalking session ID
+            if ($sessionId) {
+                $session = \App\Models\USSDSession::where('session_id', $sessionId)->first();
+
+                if ($session) {
+                    // Update session with event data
+                    $updateData = [];
+
+                    if ($status) {
+                        // Map AfricasTalking status to our status
+                        if (in_array(strtolower($status), ['completed', 'success'])) {
+                            $updateData['status'] = 'completed';
+                        } elseif (in_array(strtolower($status), ['failed', 'error', 'timeout'])) {
+                            $updateData['status'] = 'error';
+                        }
+                    }
+
+                    // Update end_time if session ended
+                    if ($status && in_array(strtolower($status), ['completed', 'failed', 'error', 'timeout'])) {
+                        $updateData['end_time'] = now();
+                    }
+
+                    if ($errorMessage) {
+                        $updateData['error_message'] = $errorMessage;
+                    }
+
+                    // Update gateway cost with ACTUAL cost from AfricasTalking (if provided)
+                    if ($actualCost !== null && is_numeric($actualCost) && $actualCost >= 0) {
+                        $gatewayCostService = app(\App\Services\GatewayCostService::class);
+                        
+                        // Convert cost to smallest unit (kobo for NGN)
+                        // AfricasTalking usually sends cost in main currency (NGN)
+                        $currency = $session->gateway_cost_currency ?? config('app.currency', 'NGN');
+                        $costInSmallestUnit = $gatewayCostService->convertToSmallestUnit((float)$actualCost, $currency);
+                        
+                        // Update gateway cost with actual cost from AfricasTalking
+                        $updateData['gateway_cost'] = $costInSmallestUnit;
+                        
+                        // Log if there's a discrepancy with our estimated cost
+                        if ($session->gateway_cost && $session->gateway_cost !== $costInSmallestUnit) {
+                            $estimatedCost = $gatewayCostService->convertFromSmallestUnit($session->gateway_cost, $currency);
+                            Log::warning('Gateway cost discrepancy detected', [
+                                'session_id' => $session->id,
+                                'estimated_cost' => $estimatedCost,
+                                'actual_cost' => $actualCost,
+                                'difference' => $actualCost - $estimatedCost,
+                            ]);
+                        }
+                    }
+
+                    // Update session if we have data
+                    if (!empty($updateData)) {
+                        $session->update($updateData);
+                    }
+
+                    // Log the event with session context
+                    Log::info('USSD Session Event Processed', [
+                        'session_id' => $session->id,
+                        'ussd_session_id' => $sessionId,
+                        'status' => $status,
+                        'duration' => $duration,
+                        'actual_cost_from_at' => $actualCost,
+                        'network' => $network,
+                    ]);
+                } else {
+                    Log::warning('USSD Session not found for event', [
+                        'session_id' => $sessionId,
+                        'phone_number' => $phoneNumber,
+                    ]);
+                }
+            }
+
+            // Always return 200 OK to AfricasTalking
+            // They expect a successful response even if we can't process the event
+            return response()->json([
+                'status' => 'received',
+                'message' => 'Event processed successfully'
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('AfricasTalking Event Processing Error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+            ]);
+
+            // Still return 200 to prevent AfricasTalking from retrying
+            // Log the error for manual investigation
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Event received but processing failed'
+            ], 200);
+        }
+    }
 }
 

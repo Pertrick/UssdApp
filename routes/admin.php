@@ -38,6 +38,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/analytics', [AdminController::class, 'analytics'])->name('analytics');
     Route::get('/settings', [AdminController::class, 'settings'])->name('settings');
     
+    // USSD Cost Management Routes
+    Route::post('/ussd-costs', [AdminController::class, 'createUssdCost'])->name('ussd-costs.create');
+    Route::put('/ussd-costs/{ussdCost}', [AdminController::class, 'updateUssdCost'])->name('ussd-costs.update');
+    
     // Billing Management Routes
     Route::get('/billing-change-requests', [AdminController::class, 'billingChangeRequests'])->name('billing-change-requests');
     Route::post('/billing-change-requests/{billingChangeRequest}/approve', [AdminController::class, 'approveBillingChangeRequest'])->name('billing-change-requests.approve');

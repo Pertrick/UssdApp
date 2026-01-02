@@ -23,7 +23,6 @@ class USSDSession extends Model
         'total_inputs',
         'collected_data',
         'error_message',
-        'gateway_provider',
         'last_activity',
         'expires_at',
         'user_agent',
@@ -37,6 +36,12 @@ class USSDSession extends Model
         'billing_status', // pending, charged, failed, refunded
         'billed_at',
         'invoice_id',
+        // Gateway cost tracking
+        'gateway_cost',
+        'gateway_cost_currency',
+        'gateway_provider',
+        'network_provider',
+        'gateway_cost_recorded_at',
     ];
 
     protected $casts = [
@@ -49,6 +54,8 @@ class USSDSession extends Model
         'is_billed' => 'boolean',
         'billing_amount' => 'decimal:4',
         'billed_at' => 'datetime',
+        'gateway_cost' => 'integer', // Stored in smallest unit (kobo/cents), serves as snapshot since recorded at billing time
+        'gateway_cost_recorded_at' => 'datetime',
     ];
 
     public function ussd(): BelongsTo

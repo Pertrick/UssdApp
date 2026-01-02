@@ -399,7 +399,7 @@
                                 required
                             >
                                 <option value="prepaid">Prepaid</option>
-                                <option value="postpaid">Pay as You Use</option>
+                                <option value="postpaid">Postpaid</option>
                             </select>
                         </div>
 
@@ -638,7 +638,7 @@ const formatBillingMethod = (method) => {
     if (!method) return 'Not Set'
     const methods = {
         'prepaid': 'Prepaid',
-        'postpaid': 'Pay as You Use'
+        'postpaid': 'Postpaid'
     }
     return methods[method] || method
 }

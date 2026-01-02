@@ -39,6 +39,24 @@ return [
         'api_key' => env('AFRICASTALKING_API_KEY'),
         'username' => env('AFRICASTALKING_USERNAME'),
         'environment' => env('AFRICASTALKING_ENVIRONMENT', 'sandbox'),
+        
+        'cost_per_session' => [
+            // Default cost (used if network-specific cost not found)
+            'default' => env('AFRICASTALKING_COST_PER_SESSION', 3.0), // NGN per session
+            
+            // Network-specific costs (optional, more accurate)
+            'mtn' => env('AFRICASTALKING_COST_MTN', 3.0),
+            'airtel' => env('AFRICASTALKING_COST_AIRTEL', 3.0),
+            'glo' => env('AFRICASTALKING_COST_GLO', 3.0),
+            '9mobile' => env('AFRICASTALKING_COST_9MOBILE', 3.0),
+            'etisalat' => env('AFRICASTALKING_COST_ETISALAT', 3.0),
+        ],
+        
+        // Currency for gateway costs
+        'cost_currency' => env('AFRICASTALKING_COST_CURRENCY', 'NGN'),
+        
+        // Monthly setup/maintenance fee (if applicable)
+        'monthly_fee' => env('AFRICASTALKING_MONTHLY_FEE', 20000.0), // NGN per month for dedicated code
     ],
 
     'paystack' => [

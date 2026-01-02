@@ -25,9 +25,35 @@ watch(() => page.props, (newProps) => {
     }
 }, { deep: true, immediate: true });
 
-// Logout method
 const logout = () => {
-    router.post(route('logout'));
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    if (!csrfToken) {
+        window.location.href = route('login');
+        return;
+    }
+    
+    window.axios.post(route('logout'), {}, {
+        headers: {
+            'X-CSRF-TOKEN': csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(() => {
+        // Logout successful, redirect to login (controller should handle this, but just in case)
+        window.location.href = route('login');
+    })
+    .catch((error) => {
+        // Handle 419 CSRF token mismatch or expired session
+        if (error.response?.status === 419 || error.response?.status === 401) {
+            // Session expired - redirect to login page
+            window.location.href = route('login');
+        } else {
+            // Other errors - still redirect to login since logout failed
+            console.error('Logout error:', error);
+            window.location.href = route('login');
+        }
+    });
 };
 </script>
 

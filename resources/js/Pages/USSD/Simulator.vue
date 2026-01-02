@@ -46,6 +46,27 @@
     </template>
 
     <div class="py-8">
+      <!-- Error Banner -->
+      <div v-if="validationError" class="max-w-5xl mx-auto mb-6">
+        <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded-md shadow-sm">
+          <div class="flex">
+            <div class="flex-shrink-0">
+              <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <div class="ml-3 flex-1">
+              <h3 class="text-sm font-medium text-red-800">
+                Cannot Start Simulation
+              </h3>
+              <div class="mt-2 text-sm text-red-700">
+                <p>{{ validationError }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
         <!-- Simulator UI -->
         <div class="flex flex-col items-center">
@@ -199,10 +220,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { router, usePage, Link, Head } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ConfirmationModal from '@/Components/ConfirmationModal.vue';
+import { useToast } from 'vue-toastification';
+
+const toast = useToast();
+const page = usePage();
 
 const props = defineProps({
   ussd: Object,
@@ -219,6 +244,7 @@ const menuText = ref('');
 const currentFlowTitle = ref('');
 const userInput = ref('');
 const errorMessage = ref('');
+const validationError = ref('');
 const loading = ref(false);
 const logs = ref([]);
 const showCloseModal = ref(false);
@@ -312,6 +338,7 @@ function getCsrfToken() {
 async function startSession() {
   loading.value = true;
   errorMessage.value = '';
+  validationError.value = '';
   
   const csrfToken = getCsrfToken();
   
@@ -330,9 +357,17 @@ async function startSession() {
     console.log('Response status:', res.status);
     
     if (!res.ok) {
-      const errorText = await res.text();
-      console.error('Error response:', errorText);
-      errorMessage.value = `Server error: ${res.status}`;
+      const errorData = await res.json().catch(() => ({ error: `Server error: ${res.status}` }));
+      const errorMsg = errorData.error || errorData.message || `Server error: ${res.status}`;
+      
+      // Check if it's a validation error (400 status)
+      if (res.status === 400) {
+        validationError.value = errorMsg;
+        toast.error(errorMsg, { timeout: 8000 });
+      } else {
+        errorMessage.value = errorMsg;
+        toast.error(errorMsg);
+      }
       return;
     }
     
@@ -346,6 +381,7 @@ async function startSession() {
       menuText.value = data.menu_text;
       currentFlowTitle.value = data.flow_title || '';
       userInput.value = '';
+      validationError.value = ''; // Clear validation error on success
       
       // Set initial input type and UI
       currentInputType.value = 'menu';
@@ -353,11 +389,15 @@ async function startSession() {
       
       fetchLogs();
     } else {
-      errorMessage.value = data.message || 'Failed to start session.';
+      const errorMsg = data.message || data.error || 'Failed to start session.';
+      errorMessage.value = errorMsg;
+      toast.error(errorMsg);
     }
   } catch (e) {
     console.error('Error:', e);
-    errorMessage.value = 'Network error. Please check your connection.';
+    const errorMsg = 'Network error. Please check your connection.';
+    errorMessage.value = errorMsg;
+    toast.error(errorMsg);
   } finally {
     loading.value = false;
   }
@@ -578,12 +618,31 @@ const scrollToBottom = () => {
   }
 };
 
+// Watch for flash messages from backend (e.g., validation errors on page load)
+watch(() => page.props.flash, (flash) => {
+  if (flash?.error) {
+    validationError.value = flash.error;
+    toast.error(flash.error, { timeout: 8000 });
+  } else if (flash?.success) {
+    toast.success(flash.success);
+  } else if (flash?.info) {
+    toast.info(flash.info);
+  }
+}, { immediate: true, deep: true });
+
 onMounted(() => {
   // Set environment based on USSD configuration (testing by default, production when live)
   if (props.ussd && props.ussd.environment) {
     environment.value = props.ussd.environment.name || 'testing';
   } else {
     environment.value = 'testing'; // Default to testing
+  }
+
+  // Check for flash messages on mount
+  const flash = page.props.flash;
+  if (flash?.error) {
+    validationError.value = flash.error;
+    toast.error(flash.error, { timeout: 8000 });
   }
 });
 </script> 

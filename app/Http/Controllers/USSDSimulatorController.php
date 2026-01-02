@@ -28,6 +28,14 @@ class USSDSimulatorController extends Controller
      */
     public function showSimulator(USSD $ussd)
     {
+
+        // Validate USSD can be tested
+        $validationError = $this->validateUssdForSimulator($ussd);
+        if ($validationError) {
+            return redirect()->route('ussd.show', $ussd->id)
+                ->with('error', $validationError);
+        }
+
         return Inertia::render('USSD/Simulator', [
             'ussd' => $ussd->load('environment'),
         ]);
@@ -38,8 +46,26 @@ class USSDSimulatorController extends Controller
      */
     public function startSession(Request $request, USSD $ussd)
     {
+        // SECURITY: Ensure the USSD belongs to the authenticated user
+        if ($ussd->user_id !== \Illuminate\Support\Facades\Auth::id()) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Unauthorized access to USSD service',
+            ], 403);
+        }
+
+        // Validate USSD can be tested
+        $validationError = $this->validateUssdForSimulator($ussd, $request->input('environment', 'simulation'));
+        if ($validationError) {
+            return response()->json([
+                'success' => false,
+                'error' => $validationError,
+            ], 400);
+        }
+
         $phoneNumber = $request->input('phone_number');
         $environment = $request->input('environment', 'simulation');
+        $sessionId = $request->input('session_id'); // Optional: allows reusing existing session
         $userAgent = $request->header('User-Agent');
         $ipAddress = $request->ip();
 
@@ -50,10 +76,10 @@ class USSDSimulatorController extends Controller
             
             if ($hasNewDynamicFlows || $hasOldDynamicFlows) {
                 // Use dynamic flow engine
-                return $this->startDynamicSession($ussd, $phoneNumber, $environment, $userAgent, $ipAddress);
+                return $this->startDynamicSession($ussd, $phoneNumber, $environment, $userAgent, $ipAddress, $sessionId);
             } else {
                 // Use static flow system
-                return $this->startStaticSession($ussd, $phoneNumber, $environment, $userAgent, $ipAddress);
+                return $this->startStaticSession($ussd, $phoneNumber, $environment, $userAgent, $ipAddress, $sessionId);
             }
         } catch (\Exception $e) {
             return response()->json([
@@ -66,9 +92,9 @@ class USSDSimulatorController extends Controller
     /**
      * Start a dynamic flow session
      */
-    protected function startDynamicSession(USSD $ussd, $phoneNumber, $environment, $userAgent, $ipAddress)
+    protected function startDynamicSession(USSD $ussd, $phoneNumber, $environment, $userAgent, $ipAddress, $sessionId = null)
     {
-        $session = $this->sessionService->startSession($ussd, $phoneNumber, $userAgent, $ipAddress, $environment);
+        $session = $this->sessionService->startSession($ussd, $phoneNumber, $userAgent, $ipAddress, $environment, $sessionId);
         
         // Check if this is using the new flow_type system or old FlowStep system
         $hasNewDynamicFlows = $ussd->flows()->where('flow_type', 'dynamic')->exists();
@@ -128,9 +154,9 @@ class USSDSimulatorController extends Controller
     /**
      * Start a static flow session
      */
-    protected function startStaticSession(USSD $ussd, $phoneNumber, $environment, $userAgent, $ipAddress)
+    protected function startStaticSession(USSD $ussd, $phoneNumber, $environment, $userAgent, $ipAddress, $sessionId = null)
     {
-        $session = $this->sessionService->startSession($ussd, $phoneNumber, $userAgent, $ipAddress, $environment);
+        $session = $this->sessionService->startSession($ussd, $phoneNumber, $userAgent, $ipAddress, $environment, $sessionId);
 
         // Load the current flow with options
         $currentFlow = $session->currentFlow;
@@ -330,6 +356,46 @@ class USSDSimulatorController extends Controller
         }
         
         return trim($response);
+    }
+
+    /**
+     * Validate USSD can be tested in simulator
+     * 
+     * @param USSD $ussd The USSD service to validate
+     * @param string|null $environment Optional environment to check (testing/production)
+     * @return string|null Error message if validation fails, null if valid
+     */
+    protected function validateUssdForSimulator(USSD $ussd, ?string $environment = null): ?string
+    {
+        // Check if USSD is active
+        if (!$ussd->is_active) {
+            return 'This USSD service is inactive and cannot be tested. Please activate it first.';
+        }
+
+        // Determine which environment to check
+        $checkEnvironment = $environment ?? $ussd->environment?->name ?? 'testing';
+        
+        // Normalize environment name
+        if ($checkEnvironment === 'simulation' || $checkEnvironment === 'test') {
+            $checkEnvironment = 'testing';
+        }
+        
+        // Check if USSD has a code for the specified environment
+        if ($checkEnvironment === 'production' || $checkEnvironment === 'live') {
+            // For production: need live_ussd_code or pattern
+            $hasCode = !empty($ussd->live_ussd_code) || !empty($ussd->pattern);
+            if (!$hasCode) {
+                return 'This USSD service does not have a live USSD code configured. Please configure a live USSD code before testing in production.';
+            }
+        } else {
+            // For testing: need testing_ussd_code or pattern
+            $hasCode = !empty($ussd->testing_ussd_code) || !empty($ussd->pattern);
+            if (!$hasCode) {
+                return 'This USSD service does not have a testing USSD code configured. Please configure a testing USSD code or pattern before testing.';
+            }
+        }
+
+        return null; // Validation passed
     }
 
     /**

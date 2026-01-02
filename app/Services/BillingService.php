@@ -36,7 +36,8 @@ class BillingService
     }
 
     /**
-     * Bill a completed session (routes to prepaid or postpaid handler)
+     * Bill a session (routes to prepaid or postpaid handler)
+     * Called on session START (first request) to match AfricasTalking billing model
      */
     public function billSession(USSDSession $session): bool
     {
@@ -305,19 +306,31 @@ class BillingService
             $q->where('business_id', $business->id);
         })->where('is_billed', true);
 
-        // Filter by period
+        // Filter by period using proper datetime ranges to avoid timezone issues
         switch ($period) {
             case 'today':
-                $query->whereDate('billed_at', today());
+                $query->whereBetween('billed_at', [
+                    now()->startOfDay(),
+                    now()->endOfDay()
+                ]);
                 break;
             case 'week':
-                $query->whereBetween('billed_at', [now()->startOfWeek(), now()->endOfWeek()]);
+                $query->whereBetween('billed_at', [
+                    now()->startOfWeek(),
+                    now()->endOfWeek()
+                ]);
                 break;
             case 'month':
-                $query->whereMonth('billed_at', now()->month);
+                $query->whereBetween('billed_at', [
+                    now()->startOfMonth(),
+                    now()->endOfMonth()
+                ]);
                 break;
             case 'year':
-                $query->whereYear('billed_at', now()->year);
+                $query->whereBetween('billed_at', [
+                    now()->startOfYear(),
+                    now()->endOfYear()
+                ]);
                 break;
         }
 
@@ -349,13 +362,19 @@ class BillingService
             $today = USSDSession::whereHas('ussd', function($q) use ($business) {
                 $q->where('business_id', $business->id);
             })->where('is_billed', true)
-            ->whereDate('billed_at', today())
+            ->whereBetween('billed_at', [
+                now()->startOfDay(),
+                now()->endOfDay()
+            ])
             ->get();
 
             $thisMonth = USSDSession::whereHas('ussd', function($q) use ($business) {
                 $q->where('business_id', $business->id);
             })->where('is_billed', true)
-            ->whereMonth('billed_at', now()->month)
+            ->whereBetween('billed_at', [
+                now()->startOfMonth(),
+                now()->endOfMonth()
+            ])
             ->get();
 
             // Separate live and simulated billing
@@ -405,13 +424,19 @@ class BillingService
             $today = USSDSession::whereHas('ussd', function($q) use ($business) {
                 $q->where('business_id', $business->id);
             })->where('is_billed', true)
-            ->whereDate('billed_at', today())
+            ->whereBetween('billed_at', [
+                now()->startOfDay(),
+                now()->endOfDay()
+            ])
             ->get();
 
             $thisMonth = USSDSession::whereHas('ussd', function($q) use ($business) {
                 $q->where('business_id', $business->id);
             })->where('is_billed', true)
-            ->whereMonth('billed_at', now()->month)
+            ->whereBetween('billed_at', [
+                now()->startOfMonth(),
+                now()->endOfMonth()
+            ])
             ->get();
 
             $todayLive = $today->where('billing_status', 'charged');

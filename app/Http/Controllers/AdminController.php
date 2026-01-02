@@ -7,6 +7,9 @@ use App\Models\User;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\BillingChangeRequest;
+use App\Models\USSDSession;
+use App\Models\UssdCost;
+use App\Services\GatewayCostService;
 use App\Enums\UserRole;
 use App\Enums\BusinessRegistrationStatus;
 use App\Enums\BillingMethod;
@@ -14,6 +17,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Carbon\Carbon;
 
 class AdminController extends Controller
 {
@@ -39,6 +43,9 @@ class AdminController extends Controller
             'recent_registrations' => Business::where('created_at', '>=', now()->subDays(7))->count(),
         ];
 
+        // Platform financial metrics (gateway cost tracking)
+        $financialStats = $this->getPlatformFinancialStats();
+
         $recentBusinesses = Business::with('user')
             ->latest()
             ->take(5)
@@ -55,9 +62,111 @@ class AdminController extends Controller
 
         return Inertia::render('Admin/Dashboard', [
             'stats' => $stats,
+            'financialStats' => $financialStats,
             'recentBusinesses' => $recentBusinesses,
             'pendingBusinesses' => $pendingBusinesses,
         ]);
+    }
+
+    /**
+     * Get platform-wide financial statistics (revenue, gateway costs, profit)
+     * Only includes live/production sessions (excludes testing/simulation)
+     */
+    private function getPlatformFinancialStats(): array
+    {
+        $currency = config('app.currency', 'NGN');
+        $currencySymbol = config('app.currency_symbol', '₦');
+        $gatewayCostService = app(GatewayCostService::class);
+
+        // Get production/live environment IDs
+        $productionEnvironmentIds = \App\Models\Environment::whereIn('name', ['production', 'live'])
+            ->pluck('id')
+            ->toArray();
+
+        // Today's stats - only production/live
+        $todaySessions = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged') // Only successfully charged sessions
+            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->whereDate('billed_at', today())
+            ->get();
+
+        // Revenue is already in main currency (decimal)
+        $todayRevenue = (float) $todaySessions->sum('billing_amount');
+        
+        // Gateway costs are stored in smallest unit (integer), need to convert
+        $todayGatewayCostsInSmallestUnit = (int) ($todaySessions->sum('gateway_cost') ?? 0);
+        $todayGatewayCosts = $gatewayCostService->convertFromSmallestUnit($todayGatewayCostsInSmallestUnit, $currency);
+        
+        $todayProfit = $todayRevenue - $todayGatewayCosts;
+        $todayMargin = $todayRevenue > 0 ? ($todayProfit / $todayRevenue) * 100 : 0;
+
+        // This month's stats - only production/live
+        $thisMonthSessions = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged') // Only successfully charged sessions
+            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->whereMonth('billed_at', now()->month)
+            ->whereYear('billed_at', now()->year)
+            ->get();
+
+        // Revenue is already in main currency (decimal)
+        $monthRevenue = (float) $thisMonthSessions->sum('billing_amount');
+        
+        // Gateway costs are stored in smallest unit (integer), need to convert
+        $monthGatewayCostsInSmallestUnit = (int) ($thisMonthSessions->sum('gateway_cost') ?? 0);
+        $monthGatewayCosts = $gatewayCostService->convertFromSmallestUnit($monthGatewayCostsInSmallestUnit, $currency);
+        
+        $monthProfit = $monthRevenue - $monthGatewayCosts;
+        $monthMargin = $monthRevenue > 0 ? ($monthProfit / $monthRevenue) * 100 : 0;
+
+        // All time stats - only production/live
+        $allTimeSessions = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged') // Only successfully charged sessions
+            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->get();
+
+        // Revenue is already in main currency (decimal)
+        $allTimeRevenue = (float) $allTimeSessions->sum('billing_amount');
+        
+        // Gateway costs are stored in smallest unit (integer), need to convert
+        $allTimeGatewayCostsInSmallestUnit = (int) ($allTimeSessions->sum('gateway_cost') ?? 0);
+        $allTimeGatewayCosts = $gatewayCostService->convertFromSmallestUnit($allTimeGatewayCostsInSmallestUnit, $currency);
+        
+        $allTimeProfit = $allTimeRevenue - $allTimeGatewayCosts;
+        $allTimeMargin = $allTimeRevenue > 0 ? ($allTimeProfit / $allTimeRevenue) * 100 : 0;
+
+        // Debug info: Count sessions with/without gateway costs
+        $todayWithCosts = $todaySessions->whereNotNull('gateway_cost')->count();
+        $monthWithCosts = $thisMonthSessions->whereNotNull('gateway_cost')->count();
+        $allTimeWithCosts = $allTimeSessions->whereNotNull('gateway_cost')->count();
+
+        return [
+            'currency' => $currency,
+            'currency_symbol' => $currencySymbol,
+            'today' => [
+                'revenue' => round($todayRevenue, 2),
+                'gateway_costs' => round($todayGatewayCosts, 2),
+                'profit' => round($todayProfit, 2),
+                'margin_percentage' => round($todayMargin, 2),
+                'sessions' => $todaySessions->count(),
+                'sessions_with_costs' => $todayWithCosts,
+            ],
+            'this_month' => [
+                'revenue' => round($monthRevenue, 2),
+                'gateway_costs' => round($monthGatewayCosts, 2),
+                'profit' => round($monthProfit, 2),
+                'margin_percentage' => round($monthMargin, 2),
+                'sessions' => $thisMonthSessions->count(),
+                'sessions_with_costs' => $monthWithCosts,
+            ],
+            'all_time' => [
+                'revenue' => round($allTimeRevenue, 2),
+                'gateway_costs' => round($allTimeGatewayCosts, 2),
+                'profit' => round($allTimeProfit, 2),
+                'margin_percentage' => round($allTimeMargin, 2),
+                'sessions' => $allTimeSessions->count(),
+                'sessions_with_costs' => $allTimeWithCosts,
+            ],
+        ];
     }
 
     /**
@@ -242,10 +351,73 @@ class AdminController extends Controller
     public function settings()
     {
         $roles = Role::all();
+        $ussdCosts = UssdCost::where('country', 'NG')
+            ->orderBy('network')
+            ->orderByDesc('effective_from')
+            ->get()
+            ->groupBy('network')
+            ->map(function ($costs) {
+                // Get the most recent active cost for each network
+                return $costs->where('is_active', true)->sortByDesc('effective_from')->first();
+            })
+            ->filter()
+            ->values();
         
         return Inertia::render('Admin/Settings', [
             'roles' => $roles,
+            'ussdCosts' => $ussdCosts,
         ]);
+    }
+    
+    /**
+     * Update USSD cost
+     */
+    public function updateUssdCost(Request $request, UssdCost $ussdCost)
+    {
+        $request->validate([
+            'cost_per_session' => 'required|numeric|min:0',
+            'effective_from' => 'required|date',
+            'is_active' => 'boolean',
+        ]);
+        
+        // Convert to smallest unit (kobo for NGN)
+        $costInSmallestUnit = (int) round($request->cost_per_session * 100);
+        
+        $ussdCost->update([
+            'cost_per_session' => $costInSmallestUnit,
+            'effective_from' => $request->effective_from,
+            'is_active' => $request->has('is_active') ? $request->is_active : true,
+        ]);
+        
+        return back()->with('success', 'USSD cost updated successfully!');
+    }
+    
+    /**
+     * Create new USSD cost
+     */
+    public function createUssdCost(Request $request)
+    {
+        $request->validate([
+            'network' => 'required|string|max:255',
+            'cost_per_session' => 'required|numeric|min:0',
+            'country' => 'required|string|size:2',
+            'currency' => 'required|string|size:3',
+            'effective_from' => 'required|date',
+        ]);
+        
+        // Convert to smallest unit (kobo for NGN)
+        $costInSmallestUnit = (int) round($request->cost_per_session * 100);
+        
+        UssdCost::create([
+            'country' => $request->country,
+            'network' => $request->network,
+            'cost_per_session' => $costInSmallestUnit,
+            'currency' => $request->currency,
+            'effective_from' => $request->effective_from,
+            'is_active' => true,
+        ]);
+        
+        return back()->with('success', 'USSD cost created successfully!');
     }
 
     /**

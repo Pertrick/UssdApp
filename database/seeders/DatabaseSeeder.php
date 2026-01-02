@@ -18,6 +18,9 @@ class DatabaseSeeder extends Seeder
         
         // Seed admin users
         $this->call(AdminSeeder::class);
+        
+        // Seed USSD costs
+       // $this->call(UssdCostSeeder::class);
 
         // Create regular user if it doesn't exist
         if (!User::where('email', 'test@example.com')->exists()) {

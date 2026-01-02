@@ -2,33 +2,46 @@
 
 namespace App\Services;
 
+use Carbon\Carbon;
 use App\Models\USSD;
 use App\Models\USSDFlow;
-use App\Models\USSDFlowOption;
+use App\Models\Environment;
 use App\Models\USSDSession;
+use Illuminate\Support\Str;
+use App\Models\USSDFlowOption;
 use App\Models\USSDSessionLog;
+use App\Services\BillingService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Services\GatewayCostService;
 use App\Services\DynamicFlowProcessor;
 use App\Services\APITestLoggingService;
-use App\Services\BillingService;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class USSDSessionService
 {
     protected $loggingService;
     protected $billingService;
+    protected $gatewayCostService;
 
-    public function __construct(APITestLoggingService $loggingService, BillingService $billingService)
+    public function __construct(APITestLoggingService $loggingService, BillingService $billingService, GatewayCostService $gatewayCostService)
     {
         $this->loggingService = $loggingService;
         $this->billingService = $billingService;
+        $this->gatewayCostService = $gatewayCostService;
     }
 
     /**
      * Start a new USSD session
+     * 
+     * @param USSD $ussd The USSD service
+     * @param string|null $phoneNumber Phone number for the session
+     * @param string|null $userAgent User agent string
+     * @param string|null $ipAddress IP address
+     * @param string|null $environment Environment override (testing/production/live)
+     * @param string|null $sessionId Optional session_id to reuse existing session
+     * @return USSDSession
      */
-    public function startSession(USSD $ussd, ?string $phoneNumber = null, ?string $userAgent = null, ?string $ipAddress = null, ?string $environment = null): USSDSession
+    public function startSession(USSD $ussd, ?string $phoneNumber = null, ?string $userAgent = null, ?string $ipAddress = null, ?string $environment = null, ?string $sessionId = null): USSDSession
     {
         // Get the root flow for this USSD
         $rootFlow = USSDFlow::where('ussd_id', $ussd->id)
@@ -40,15 +53,36 @@ class USSDSessionService
             throw new \Exception('No root flow found for this USSD service');
         }
 
-        // Determine environment: override takes precedence over USSD default
-        // Default to testing if no environment is set
         $sessionEnvironment = $environment ?? $ussd->environment?->name ?? 'testing';
         
         // Get environment ID
-        $environmentModel = \App\Models\Environment::where('name', $sessionEnvironment)->first();
+        $environmentModel = Environment::where('name', $sessionEnvironment)->first();
         $environmentId = $environmentModel?->id;
 
-        // Create session
+        if ($sessionId) {
+            $existingSession = USSDSession::where('session_id', $sessionId)
+                ->where('ussd_id', $ussd->id)
+                ->where('status', 'active')
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if ($existingSession) {
+                // Reuse existing session - update activity, don't bill again
+                $existingSession->update([
+                    'last_activity' => now(),
+                ]);
+                
+                Log::info('Reusing existing session', [
+                    'session_id' => $existingSession->id,
+                    'ussd_session_id' => $existingSession->session_id,
+                    'phone_number' => $phoneNumber,
+                ]);
+                
+                return $existingSession;
+            }
+        }
+
+        // Create new session
         $session = USSDSession::create([
             'ussd_id' => $ussd->id,
             'environment_id' => $environmentId,
@@ -73,9 +107,42 @@ class USSDSessionService
         // Log the session start
         $this->logSessionAction($session, 'session_start', null, $rootFlow->menu_text);
         
-        // Simulate billing for testing sessions (no real charges)
+        // Handle billing based on environment
         if ($sessionEnvironment === 'testing') {
+            // Simulate billing for testing sessions (no real charges)
             $this->simulateBilling($session);
+        } elseif ($sessionEnvironment === 'production' || $sessionEnvironment === 'live') {
+            // Bill production/live sessions (real charges)
+            // Only bill if session hasn't been billed yet (duplicate check)
+            if (!$session->is_billed) {
+                try {
+                    DB::beginTransaction();
+                    
+                    // Record gateway cost first (what AfricasTalking charges)
+                    $networkProvider = $this->gatewayCostService->detectNetworkProvider($phoneNumber);
+                    $this->gatewayCostService->recordGatewayCost($session, $networkProvider);
+                    
+                    // Then bill the customer (what you charge them)
+                    $billingResult = $this->billingService->billSession($session);
+                    
+                    // If billing failed (e.g., insufficient balance), mark session
+                    if (!$billingResult) {
+                        $session->update(['status' => 'error']);
+                        DB::rollBack();
+                    } else {
+                        DB::commit();
+                    }
+                } catch (\Throwable $e) {
+                    DB::rollBack();
+                    Log::error('Failed to bill USSD session on start (simulator)', [
+                        'session_id' => $session->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    
+                    // Mark session as error if billing fails
+                    $session->update(['status' => 'error']);
+                }
+            }
         }
 
         return $session;
@@ -942,28 +1009,13 @@ class USSDSessionService
     }
 
     /**
-     * Mark session as completed and trigger billing for production sessions
+     * Mark session as completed
+     * Note: Billing now happens on session START, not completion
      */
     private function completeSession(USSDSession $session): void
     {
-        // Update status
+        // Update status only
         $session->update(['status' => 'completed']);
-
-        // Determine environment from session data
-        $sessionData = $session->session_data ?? [];
-        $environment = $sessionData['session_environment'] ?? null;
-
-        // Only bill real (production) sessions; testing remains free/simulated
-        if ($environment === 'production') {
-            try {
-                $this->billingService->billSession($session);
-            } catch (\Throwable $e) {
-                Log::error('Failed to bill USSD session on completion', [
-                    'session_id' => $session->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
     }
 
     /**

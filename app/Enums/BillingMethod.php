@@ -14,7 +14,7 @@ enum BillingMethod: string
     {
         return match($this) {
             self::PREPAID => 'Prepaid',
-            self::POSTPAID => 'Pay as You Use',
+            self::POSTPAID => 'Postpaid',
         };
     }
 

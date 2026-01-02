@@ -21,16 +21,17 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 // USSD Gateway Routes (No authentication required - called by AfricasTalking)
 Route::prefix('ussd')->group(function () {
-    // Main USSD endpoint - AfricasTalking will call this
-    // Rate limit: 60 requests per minute per IP (AfricasTalking may send multiple requests per session)
+    
     Route::post('/gateway', [USSDGatewayController::class, 'handleUSSD'])
         ->middleware('throttle:60,1');
     
-    // Health check endpoint - higher rate limit for monitoring
+    // Rate limit: 30 events per minute (events are sent once per session)
+    Route::post('/events', [USSDGatewayController::class, 'handleEvents'])
+        ->middleware('throttle:30,1');
+    
     Route::get('/health', [USSDGatewayController::class, 'healthCheck'])
         ->middleware('throttle:120,1');
     
-    // Test endpoint (development only)
     Route::get('/test', [USSDGatewayController::class, 'testUSSD'])
         ->middleware('throttle:30,1');
 });

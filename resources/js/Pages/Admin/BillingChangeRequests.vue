@@ -306,7 +306,7 @@ const formatDate = (date) => {
 const formatBillingMethod = (method) => {
     const methods = {
         'prepaid': 'Prepaid',
-        'postpaid': 'Pay as You Use',
+        'postpaid': 'Postpaid',
     }
     return methods[method] || method
 }

@@ -159,6 +159,147 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Financial Statistics -->
+            <div class="mt-8">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Platform Financial Metrics</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                    <!-- Today's Stats -->
+                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div class="p-6">
+                            <h4 class="text-sm font-medium text-gray-500 mb-4">Today</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Revenue:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.today?.revenue || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Gateway Costs:</span>
+                                    <span class="text-sm font-medium text-red-600">
+                                        -{{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.today?.gateway_costs || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between border-t pt-2">
+                                    <span class="text-sm font-medium text-gray-700">Profit:</span>
+                                    <span :class="[
+                                        'text-sm font-semibold',
+                                        (financialStats?.today?.profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.today?.profit || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Margin:</span>
+                                    <span :class="[
+                                        'text-sm font-medium',
+                                        (financialStats?.today?.margin_percentage || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.today?.margin_percentage || 0 }}%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Sessions:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.today?.sessions || 0 }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- This Month's Stats -->
+                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div class="p-6">
+                            <h4 class="text-sm font-medium text-gray-500 mb-4">This Month</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Revenue:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.this_month?.revenue || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Gateway Costs:</span>
+                                    <span class="text-sm font-medium text-red-600">
+                                        -{{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.this_month?.gateway_costs || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between border-t pt-2">
+                                    <span class="text-sm font-medium text-gray-700">Profit:</span>
+                                    <span :class="[
+                                        'text-sm font-semibold',
+                                        (financialStats?.this_month?.profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.this_month?.profit || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Margin:</span>
+                                    <span :class="[
+                                        'text-sm font-medium',
+                                        (financialStats?.this_month?.margin_percentage || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.this_month?.margin_percentage || 0 }}%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Sessions:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.this_month?.sessions || 0 }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- All Time Stats -->
+                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div class="p-6">
+                            <h4 class="text-sm font-medium text-gray-500 mb-4">All Time</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Revenue:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.all_time?.revenue || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Gateway Costs:</span>
+                                    <span class="text-sm font-medium text-red-600">
+                                        -{{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.all_time?.gateway_costs || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between border-t pt-2">
+                                    <span class="text-sm font-medium text-gray-700">Profit:</span>
+                                    <span :class="[
+                                        'text-sm font-semibold',
+                                        (financialStats?.all_time?.profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.currency_symbol }}{{ formatCurrency(financialStats?.all_time?.profit || 0) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Margin:</span>
+                                    <span :class="[
+                                        'text-sm font-medium',
+                                        (financialStats?.all_time?.margin_percentage || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                    ]">
+                                        {{ financialStats?.all_time?.margin_percentage || 0 }}%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-sm text-gray-600">Sessions:</span>
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ financialStats?.all_time?.sessions || 0 }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </AdminLayout>
 </template>
@@ -169,6 +310,7 @@ import AdminLayout from '@/Layouts/AdminLayout.vue'
 
 const props = defineProps({
     stats: Object,
+    financialStats: Object,
     recentBusinesses: Array,
     pendingBusinesses: Array,
 })
@@ -177,11 +319,14 @@ const formatDate = (date) => {
     return new Date(date).toLocaleDateString()
 }
 
+const formatCurrency = (amount) => {
+    return parseFloat(amount || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 const getStatusBadgeClass = (verified) => {
     return verified 
         ? 'bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full'
         : 'bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full'
 }
-
 
 </script>

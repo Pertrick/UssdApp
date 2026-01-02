@@ -98,6 +98,19 @@ return [
 
     'currency' => env('APP_CURRENCY', 'NGN'),
     'currency_symbol' => env('APP_CURRENCY_SYMBOL', '₦'),
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Application Country
+    |--------------------------------------------------------------------------
+    |
+    | Default country code (ISO 3166-1 alpha-2) used for USSD gateway cost
+    | calculations and network detection. Configure in your .env file:
+    | APP_COUNTRY=NG
+    |
+    */
+    
+    'country' => env('APP_COUNTRY', 'NG'),
 
     /*
     |--------------------------------------------------------------------------

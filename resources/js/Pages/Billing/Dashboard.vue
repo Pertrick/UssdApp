@@ -39,18 +39,10 @@
                       {{ currentDataView }}
                     </span>
                     <button
-                      v-if="!isViewingOverride"
-                      @click="showOverrideModal = true"
+                      @click="openOverrideModal"
                       class="text-xs text-blue-600 hover:text-blue-800 underline"
                     >
-                      View different data
-                    </button>
-                    <button
-                      v-else
-                      @click="resetToDefaultView"
-                      class="text-xs text-gray-600 hover:text-gray-800 underline"
-                    >
-                      Reset to default
+                      Switch view
                     </button>
                   </div>
                 </div>
@@ -256,7 +248,7 @@
         </div>
 
         <!-- Data View Override Modal -->
-        <Modal :show="showOverrideModal" @close="showOverrideModal = false">
+        <Modal :show="showOverrideModal" @close="closeOverrideModal">
           <div class="p-6">
             <h3 class="text-lg font-medium text-gray-900 mb-4">View Different Data</h3>
             
@@ -270,7 +262,7 @@
                 <div
                   @click="selectDataView('live')"
                   class="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-green-300 hover:bg-green-50 transition-colors"
-                  :class="{ 'border-green-500 bg-green-50': dataViewOverride === 'live' }"
+                  :class="{ 'border-green-500 bg-green-50': tempModalSelection === 'live' }"
                 >
                   <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -286,7 +278,7 @@
                         <p class="text-sm text-gray-500">View live production billing and session data</p>
                       </div>
                     </div>
-                    <div v-if="dataViewOverride === 'live'" class="flex-shrink-0">
+                    <div v-if="tempModalSelection === 'live'" class="flex-shrink-0">
                       <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
@@ -297,7 +289,7 @@
                 <div
                   @click="selectDataView('simulated')"
                   class="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-colors"
-                  :class="{ 'border-blue-500 bg-blue-50': dataViewOverride === 'simulated' }"
+                  :class="{ 'border-blue-500 bg-blue-50': tempModalSelection === 'simulated' }"
                 >
                   <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -313,7 +305,7 @@
                         <p class="text-sm text-gray-500">View simulated testing billing and session data</p>
                       </div>
                     </div>
-                    <div v-if="dataViewOverride === 'simulated'" class="flex-shrink-0">
+                    <div v-if="tempModalSelection === 'simulated'" class="flex-shrink-0">
                       <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
@@ -325,15 +317,14 @@
 
             <div class="flex justify-end space-x-3 mt-6">
               <button
-                @click="showOverrideModal = false"
+                @click="closeOverrideModal"
                 class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md font-medium"
               >
                 Cancel
               </button>
               <button
                 @click="applyDataViewOverride"
-                :disabled="!dataViewOverride"
-                class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-md font-medium"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium"
               >
                 Apply View
               </button>
@@ -449,8 +440,11 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { router, usePage } from '@inertiajs/vue3'
+import { useToast } from 'vue-toastification'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import Modal from '@/Components/Modal.vue'
+
+const toast = useToast()
 
 const props = defineProps({
   billingStats: Object,
@@ -458,6 +452,8 @@ const props = defineProps({
   sessionPrice: Number,
   availableGateways: Object,
   billingFilter: String,
+  period: String, // Added period prop
+  ussdEnvironment: String,
   testBalance: Number,
   currency: String,
   currencySymbol: String,
@@ -487,12 +483,40 @@ const showOverrideModal = ref(false)
 const paymentAmount = ref(0)
 const selectedGateway = ref('')
 const paymentStep = ref(1)
-const selectedPeriod = ref('month')
+const selectedPeriod = ref(props.period || 'month')
 
 // Smart defaults with override functionality
 const ussdEnvironment = ref(props.ussdEnvironment || 'testing') // Current USSD environment
-const dataViewOverride = ref(props.billingFilter) // User's data view override
+const dataViewOverride = ref(props.billingFilter && props.billingFilter !== 'all' ? props.billingFilter : null) // User's data view override
 const isViewingOverride = ref(false) // Whether user is viewing different data than USSD environment
+const tempModalSelection = ref(null) // Temporary selection in modal (before applying)
+
+// Watch for prop changes (e.g., when USSD environment changes)
+watch(() => props.ussdEnvironment, (newEnv) => {
+  if (newEnv) {
+    ussdEnvironment.value = newEnv
+    // If no override is set, reload data to match new environment
+    if (!dataViewOverride.value) {
+      loadBillingData()
+    }
+  }
+})
+
+// Watch for billingFilter changes from backend
+watch(() => props.billingFilter, (newFilter) => {
+  if (newFilter && newFilter !== 'all') {
+    dataViewOverride.value = newFilter
+  } else {
+    dataViewOverride.value = null
+  }
+})
+
+// Watch for period changes from backend
+watch(() => props.period, (newPeriod) => {
+  if (newPeriod) {
+    selectedPeriod.value = newPeriod
+  }
+})
 
 // Computed properties for smart defaults with override
 const currentDataView = computed(() => {
@@ -546,14 +570,10 @@ const currentStats = computed(() => {
   }
 })
 
+// Use sessions directly from backend (already filtered)
+// No need to filter again on frontend since backend handles it
 const filteredSessions = computed(() => {
-  const viewMode = dataViewOverride.value || ussdEnvironment.value
-  
-  if (viewMode === 'live') {
-    return props.recentSessions.filter(session => session.billing_status !== 'simulated')
-  } else {
-    return props.recentSessions.filter(session => session.billing_status === 'simulated')
-  }
+  return props.recentSessions || []
 })
 
 const formatCurrency = (amount) => {
@@ -579,28 +599,62 @@ const getStatusClass = (status) => {
   }
 }
 
+const openOverrideModal = () => {
+  // Initialize modal selection with current override value
+  tempModalSelection.value = dataViewOverride.value
+  showOverrideModal.value = true
+}
+
+const closeOverrideModal = () => {
+  // Reset temporary selection without applying
+  tempModalSelection.value = null
+  showOverrideModal.value = false
+}
+
 const selectDataView = (view) => {
-  dataViewOverride.value = view
+  // Just set the temporary value for the modal, don't change actual override yet
+  tempModalSelection.value = view
 }
 
 const applyDataViewOverride = () => {
+  // Apply the temporary selection as the actual override (null means reset to default)
+  dataViewOverride.value = tempModalSelection.value
   showOverrideModal.value = false
-  loadBillingData()
+  tempModalSelection.value = null
+  
+  // If null, reset to default (don't send filter)
+  if (dataViewOverride.value === null) {
+    resetToDefaultView()
+  } else {
+    // Otherwise, reload with the selected filter
+    loadBillingData()
+  }
 }
 
 const resetToDefaultView = () => {
   dataViewOverride.value = null
-  loadBillingData()
+  // When resetting, don't send a filter so backend determines the default
+  router.get(route('billing.dashboard'), { 
+    period: selectedPeriod.value
+    // Don't send billing_filter - let backend determine default
+  }, {
+    preserveState: false,
+    preserveScroll: true,
+    only: ['billingStats', 'recentSessions', 'billingFilter', 'period', 'ussdEnvironment']
+  })
 }
 
 const loadBillingData = () => {
-  const filter = dataViewOverride.value || ussdEnvironment.value
-  router.get(route('billing.dashboard'), { 
-    period: selectedPeriod.value,
-    billing_filter: filter
-  }, {
-    preserveState: true,
-    preserveScroll: true
+  // If there's an override, use it; otherwise don't send filter (let backend decide)
+  const params = { period: selectedPeriod.value }
+  if (dataViewOverride.value) {
+    params.billing_filter = dataViewOverride.value
+  }
+  
+  router.get(route('billing.dashboard'), params, {
+    preserveState: false,
+    preserveScroll: true,
+    only: ['billingStats', 'recentSessions', 'billingFilter', 'period', 'ussdEnvironment']
   })
 }
 
@@ -687,23 +741,14 @@ const showBankDetails = (bankData) => {
 
 const page = usePage()
 
-// Watch for flash messages and show alerts
+// Watch for flash messages and show toast notifications
 watch(() => page.props.flash, (flash) => {
   if (flash?.success) {
-    // Show success alert
-    alert(flash.success)
-    // Clear the flash message after showing
-    router.reload({ only: [] })
+    toast.success(flash.success)
   } else if (flash?.error) {
-    // Show error alert
-    alert(flash.error)
-    // Clear the flash message after showing
-    router.reload({ only: [] })
+    toast.error(flash.error)
   } else if (flash?.info) {
-    // Show info alert
-    alert(flash.info)
-    // Clear the flash message after showing
-    router.reload({ only: [] })
+    toast.info(flash.info)
   }
 }, { immediate: true, deep: true })
 
@@ -711,11 +756,11 @@ watch(() => page.props.flash, (flash) => {
 onMounted(() => {
   const flash = page.props.flash
   if (flash?.success) {
-    alert(flash.success)
+    toast.success(flash.success)
   } else if (flash?.error) {
-    alert(flash.error)
+    toast.error(flash.error)
   } else if (flash?.info) {
-    alert(flash.info)
+    toast.info(flash.info)
   }
 })
 </script>

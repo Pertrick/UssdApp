@@ -62,7 +62,15 @@ class AfricasTalkingService
             }
 
             // Get or create session
-            $session = $this->getOrCreateSession($ussd, $sessionId, $phoneNumber);
+            // Empty text indicates first request (session start)
+            $isFirstRequest = empty($text);
+            $session = $this->getOrCreateSession($ussd, $sessionId, $phoneNumber, $isFirstRequest);
+
+            // Check if billing failed (insufficient balance, etc.)
+            if ($session->billing_status === 'failed') {
+                $errorMessage = $session->error_message ?? 'Insufficient balance. Please top up your account.';
+                return $this->formatResponse('END', $errorMessage);
+            }
 
             // Process the input
             $ussdSessionService = app(USSDSessionService::class);
@@ -83,19 +91,48 @@ class AfricasTalkingService
 
     /**
      * Get or create USSD session
+     * Bills on first request (when session is created)
      */
-    protected function getOrCreateSession(USSD $ussd, string $sessionId, string $phoneNumber): USSDSession
+    protected function getOrCreateSession(USSD $ussd, string $sessionId, string $phoneNumber, bool $isFirstRequest = false): USSDSession
     {
-        // Try to find existing session
+        // Try to find existing session (prevent duplicate billing)
         $session = USSDSession::where('session_id', $sessionId)->first();
 
         if (!$session) {
             // Create new session
             $ussdSessionService = app(USSDSessionService::class);
-            $session = $ussdSessionService->startSession($ussd, $phoneNumber, 'AfricasTalking', null);
+            $session = $ussdSessionService->startSession($ussd, $phoneNumber, 'AfricasTalking', null, 'production');
             
             // Update with AfricasTalking session ID
             $session->update(['session_id' => $sessionId]);
+            
+
+            if ($isFirstRequest && !$session->is_billed) {
+                try {
+                    $billingService = app(\App\Services\BillingService::class);
+                    $gatewayCostService = app(\App\Services\GatewayCostService::class);
+                    
+                    // Record gateway cost first (what AfricasTalking charges)
+                    $networkProvider = $gatewayCostService->detectNetworkProvider($phoneNumber);
+                    $gatewayCostService->recordGatewayCost($session, $networkProvider);
+                    
+                    // Then bill the customer
+                    $billingResult = $billingService->billSession($session);
+                    
+                    // If billing failed (e.g., insufficient balance), mark session
+                    if (!$billingResult) {
+                        $session->update(['status' => 'error']);
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to bill USSD session on start', [
+                        'session_id' => $session->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    
+                    // Mark session as error if billing fails
+                    $session->update(['status' => 'error']);
+                }
+            }
         }
 
         return $session;
