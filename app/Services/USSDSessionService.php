@@ -174,8 +174,12 @@ class USSDSessionService
                 'invoice_id' => 'TEST-' . Str::random(8)
             ]);
 
+            // Get currency symbol
+            $currency = $business->billing_currency ?? config('app.currency', 'NGN');
+            $currencySymbol = $this->getCurrencySymbol($currency);
+            
             // Log the simulated billing
-            $this->logSessionAction($session, 'billing_simulated', null, "Session cost: \${$sessionCost} (simulated)");
+            $this->logSessionAction($session, 'billing_simulated', null, "Session cost: {$currencySymbol}{$sessionCost} (simulated)");
             
         } catch (\Exception $e) {
             // Log error but don't fail the session
@@ -389,6 +393,7 @@ class USSDSessionService
             'success' => true,
             'message' => $currentFlow->getFullDisplayText($session),
             'flow_title' => $currentFlow->title,
+            'flow_description' => $currentFlow->description,
             'requires_input' => true,
             'current_flow' => $currentFlow,
         ];
@@ -407,6 +412,7 @@ class USSDSessionService
                 'success' => false,
                 'message' => $result['message'] ?? 'Dynamic flow processing failed',
                 'flow_title' => $result['title'] ?? $flow->title,
+                'flow_description' => $flow->description,
                 'requires_input' => false,
                 'current_flow' => $flow,
             ];
@@ -436,6 +442,7 @@ class USSDSessionService
             'success' => true,
             'message' => $message,
             'flow_title' => $flowTitle,
+            'flow_description' => $flow->description,
             'requires_input' => !empty($result['options']),
             'current_flow' => $flow,
             'dynamic_options' => $result['options'] ?? [],
@@ -519,6 +526,7 @@ class USSDSessionService
             'success' => true,
             'message' => $message,
             'flow_title' => $flowTitle,
+            'flow_description' => $flow->description,
             'requires_input' => !empty($options),
             'current_flow' => $flow,
             'dynamic_options' => $options,
@@ -1069,6 +1077,7 @@ class USSDSessionService
             'success' => true,
             'message' => $prompt,
             'flow_title' => $session->currentFlow->title,
+            'flow_description' => $session->currentFlow->description,
             'requires_input' => true,
             'current_flow' => $session->currentFlow,
             'input_type' => $option->action_type,
@@ -1917,5 +1926,23 @@ class USSDSessionService
             ->where('is_marketplace_template', true)
             ->where('is_active', true)
             ->first();
+    }
+    
+    /**
+     * Get currency symbol from currency code
+     */
+    private function getCurrencySymbol(string $currency): string
+    {
+        $currencySymbols = [
+            'NGN' => '₦',
+            'USD' => '$',
+            'GBP' => '£',
+            'EUR' => '€',
+            'KES' => 'KSh',
+            'GHS' => '₵',
+            'ZAR' => 'R',
+        ];
+        
+        return $currencySymbols[$currency] ?? $currency;
     }
 }

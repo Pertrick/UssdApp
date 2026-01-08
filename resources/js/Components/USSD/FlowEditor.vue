@@ -66,17 +66,17 @@
         @open-api-wizard="$emit('open-api-wizard')"
       />
 
-      <!-- Menu Text Editor (Static Flow Only) -->
+      <!-- Menu Text Display (Static Flow Only) - Read-only, auto-generated from options -->
       <div v-if="flow.flow_type === 'static'" class="mb-4">
-        <label class="block text-sm font-medium text-gray-700">Menu Text (Numbered Options Only)</label>
+        <label class="block text-sm font-medium text-gray-700">Menu Text (Auto-generated from options)</label>
         <textarea 
           :value="flow.menu_text" 
-          @input="updateFlow('menu_text', $event.target.value)"
+          readonly
           rows="3" 
-          class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-          placeholder="Enter numbered options only (e.g., 1. Gas Leak&#10;2. Fuel/Petrol&#10;3. Oil)"
+          class="mt-1 block w-full rounded border-gray-300 bg-gray-50 text-gray-600 cursor-not-allowed"
+          placeholder="Menu text will be generated automatically from your options below"
         ></textarea>
-        <p class="mt-1 text-xs text-gray-500">Enter only the numbered options. Edit this text to automatically update the options below, or edit options to update this text.</p>
+        <p class="mt-1 text-xs text-gray-500">This menu text is automatically generated from your options below. Edit the options to update this text.</p>
       </div>
       
       <!-- Description -->
@@ -91,8 +91,10 @@
       
       <!-- Options Editor (Static Flow Only) -->
       <div v-if="flow.flow_type === 'static'" class="mb-4">
-        <label class="block text-sm font-medium text-gray-700">Options (Auto-syncs with menu text)</label>
+        <label class="block text-sm font-medium text-gray-700">Options</label>
         <p class="mt-1 text-xs text-gray-500 mb-2">
+          Edit options below to configure your menu. The menu text above will be automatically generated from these options.
+          <br><br>
           <strong>Input Collection Tip:</strong> For input options, you can specify what happens after collecting input. 
           Leave "Next Flow" empty to stay in the same flow, select "End session after input" to close the session, or choose a flow to navigate to.
         </p>

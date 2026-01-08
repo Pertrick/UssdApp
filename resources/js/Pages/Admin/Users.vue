@@ -65,7 +65,13 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm text-gray-900">
-                                            {{ user.businesses_count || 0 }} businesses
+                                            <div>{{ user.businesses_count || 0 }} businesses</div>
+                                            <div v-if="user.businesses_summary && user.businesses_summary.primary_business" class="text-xs text-gray-500 mt-1">
+                                                Balance: {{ formatCurrency(user.businesses_summary.total_balance, user.businesses_summary.primary_business?.billing_currency || 'NGN') }}
+                                            </div>
+                                            <div v-else-if="user.businesses && user.businesses.length > 0" class="text-xs text-gray-500 mt-1">
+                                                Balance: {{ formatCurrency(user.businesses_summary?.total_balance || 0, user.businesses[0]?.billing_currency || 'NGN') }}
+                                            </div>
                                         </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
@@ -189,6 +195,11 @@ const selectedRoles = ref([])
 
 const formatDate = (date) => {
     return new Date(date).toLocaleDateString()
+}
+
+const formatCurrency = (amount, currency = 'NGN') => {
+    const symbol = currency === 'NGN' ? '₦' : currency
+    return `${symbol}${parseFloat(amount || 0).toFixed(2)}`
 }
 
 const getStatusBadgeClass = (isActive) => {

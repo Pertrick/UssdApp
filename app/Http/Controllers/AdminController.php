@@ -296,7 +296,10 @@ class AdminController extends Controller
      */
     public function users(Request $request)
     {
-        $query = User::with(['businesses', 'roles']);
+        $query = User::with(['businesses' => function($q) {
+            $q->select('id', 'user_id', 'business_name', 'account_balance', 'test_balance', 'billing_currency', 'billing_method', 'is_primary');
+        }, 'roles'])
+        ->withCount('businesses');
 
         // Search by name or email
         if ($request->has('search')) {
@@ -308,6 +311,24 @@ class AdminController extends Controller
         }
 
         $users = $query->latest()->paginate(15);
+        
+        $users->getCollection()->transform(function ($user) {
+            $businessesCount = isset($user->businesses_count) 
+                ? $user->businesses_count 
+                : (isset($user->businesses) ? $user->businesses->count() : 0);
+            
+            $user->businesses_summary = [
+                'total_balance' => $user->businesses ? $user->businesses->sum('account_balance') : 0,
+                'total_test_balance' => $user->businesses ? $user->businesses->sum('test_balance') : 0,
+                'primary_business' => $user->businesses ? $user->businesses->where('is_primary', true)->first() : null,
+            ];
+            
+            // Explicitly set businesses_count to ensure it's included in JSON response
+            $user->setAttribute('businesses_count', $businessesCount);
+            
+            return $user;
+        });
+        
         $roles = Role::all();
 
         return Inertia::render('Admin/Users', [
@@ -350,7 +371,7 @@ class AdminController extends Controller
      */
     public function settings()
     {
-        $roles = Role::all();
+        $roles = Role::withCount('users')->get();
         $ussdCosts = UssdCost::where('country', 'NG')
             ->orderBy('network')
             ->orderByDesc('effective_from')

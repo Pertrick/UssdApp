@@ -164,6 +164,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useForm } from '@inertiajs/vue3'
+import { useToast } from 'vue-toastification'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import ConfirmationModal from '@/Components/ConfirmationModal.vue'
 import APIConfigurationWizard from '@/Components/APIConfigurationWizard.vue'
@@ -171,6 +172,8 @@ import FlowList from '@/Components/USSD/FlowList.vue'
 import FlowEditor from '@/Components/USSD/FlowEditor.vue'
 import AddFlowModal from '@/Components/USSD/AddFlowModal.vue'
 import { csrfToken } from '@/utils/csrf.js'
+
+const toast = useToast()
 
 const props = defineProps({
     ussd: Object,
@@ -199,7 +202,6 @@ const currentApiOption = ref(null)
 const flowForm = useForm({
     name: '',
     title: '',
-    menu_text: '',
     description: '',
     flow_type: 'static',
     dynamic_config: {
@@ -337,19 +339,57 @@ const addOption = () => {
         selectedFlow.value.options = []
     }
     
+    // Calculate next option_value and sort_order based on existing options
+    let nextValue = '1'
+    let nextSortOrder = 1
+    
+    if (selectedFlow.value.options.length > 0) {
+        // Find max numeric option_value (handle both string and number, skip '0' for Exit)
+        const values = selectedFlow.value.options
+            .map(opt => {
+                const val = opt.option_value
+                if (!val || val === '') return 0
+                const num = parseInt(val)
+                return isNaN(num) ? 0 : num
+            })
+            .filter(v => v > 0) // Exclude 0 (Exit option) and invalid values
+        
+        if (values.length > 0) {
+            nextValue = (Math.max(...values) + 1).toString()
+        }
+        nextSortOrder = selectedFlow.value.options.length + 1
+    }
+    
     const newOption = {
         option_text: '',
-        option_value: '',
-        action_type: 'navigate',
-        action_data: {},
-        next_flow_id: null
+        option_value: nextValue,
+        action_type: 'message', // Match default options structure
+        action_data: {
+            message: '' // Empty message that user can fill
+        },
+        next_flow_id: null,
+        sort_order: nextSortOrder,
+        is_active: true,
+        requires_input: false
     }
     
     selectedFlow.value.options.push(newOption)
+    
+    // Auto-sync: Update menu_text when option is added
+    if (selectedFlow.value.flow_type === 'static') {
+        handleOptionChange()
+    }
 }
 
 const removeOption = (index) => {
-    selectedFlow.value.options.splice(index, 1)
+    if (selectedFlow.value.options) {
+        selectedFlow.value.options.splice(index, 1)
+        
+        // Auto-sync: Update menu_text when option is removed
+        if (selectedFlow.value.flow_type === 'static') {
+            handleOptionChange()
+        }
+    }
 }
 
 const hasUnsavedChanges = () => {
@@ -421,11 +461,38 @@ const saveFlow = async () => {
             
             selectedFlow.value = convertedFlow
             originalFlow.value = JSON.parse(JSON.stringify(convertedFlow))
+            
+            // Show success message
+            toast.success(result.message || 'Flow saved successfully!', {
+                timeout: 3000
+            })
         } else {
             flowErrors.value = result.errors || {}
+            
+            // Show error message with validation errors if any
+            let errorMessage = result.message || 'Failed to save flow. Please check the errors below.'
+            
+            // If there are validation errors, show the first one
+            if (result.errors) {
+                const firstError = Object.values(result.errors)[0]
+                if (Array.isArray(firstError) && firstError.length > 0) {
+                    errorMessage = firstError[0]
+                } else if (typeof firstError === 'string') {
+                    errorMessage = firstError
+                }
+            }
+            
+            toast.error(errorMessage, {
+                timeout: 5000
+            })
         }
     } catch (error) {
         flowErrors.value.general = 'An error occurred while saving the flow.'
+        
+        // Show error toast for network/other errors
+        toast.error('An error occurred while saving the flow. Please try again.', {
+            timeout: 5000
+        })
     } finally {
         savingFlow.value = false
     }
@@ -537,6 +604,8 @@ const cancelEdit = () => {
 const updateFlow = (key, value) => {
     if (selectedFlow.value) {
         selectedFlow.value[key] = value
+        // Note: menu_text is now read-only and auto-generated from options
+        // No need to sync from menu_text to options anymore
     }
 }
 
@@ -549,6 +618,11 @@ const updateDynamicConfig = (key, value) => {
 const updateOption = (index, key, value) => {
     if (selectedFlow.value && selectedFlow.value.options && selectedFlow.value.options[index]) {
         selectedFlow.value.options[index][key] = value
+        
+        // Auto-sync: When option_text or option_value changes, regenerate menu_text
+        if ((key === 'option_text' || key === 'option_value') && selectedFlow.value.flow_type === 'static') {
+            handleOptionChange()
+        }
     }
 }
 
@@ -559,6 +633,44 @@ const updateActionData = (index, key, value) => {
         }
         selectedFlow.value.options[index].action_data[key] = value
     }
+}
+
+// Auto-sync function: Generate menu_text from options (one-way: options → menu_text)
+// Menu text is now read-only and auto-generated from options
+const handleOptionChange = () => {
+    if (!selectedFlow.value || !selectedFlow.value.options) return
+    
+    // Generate menu text from options, using option_value if available
+    const validOptions = selectedFlow.value.options
+        .filter(option => option.option_text && option.option_text.trim())
+        .sort((a, b) => {
+            // Sort by sort_order if available, otherwise by option_value
+            if (a.sort_order !== undefined && b.sort_order !== undefined) {
+                return a.sort_order - b.sort_order
+            }
+            const aVal = parseInt(a.option_value) || 0
+            const bVal = parseInt(b.option_value) || 0
+            return aVal - bVal
+        })
+    
+    if (validOptions.length === 0) {
+        selectedFlow.value.menu_text = ''
+        return
+    }
+    
+    let menuText = ''
+    validOptions.forEach((option) => {
+        if (menuText) menuText += '\n'
+        
+        // Use option_value if it exists and is not empty, otherwise use index + 1
+        const displayNumber = option.option_value && option.option_value.toString().trim() !== ''
+            ? option.option_value
+            : (validOptions.indexOf(option) + 1)
+        
+        menuText += `${displayNumber}. ${option.option_text}`
+    })
+    
+    selectedFlow.value.menu_text = menuText
 }
 
 const updateFlowForm = (key, value) => {

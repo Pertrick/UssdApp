@@ -72,20 +72,6 @@
               <p class="mt-1 text-xs text-gray-500">This will appear above the menu options (optional)</p>
             </div>
             
-            <!-- Menu Text Editor (Static Flow Only) -->
-            <div v-if="form.flow_type === 'static'">
-              <label class="block text-sm font-medium text-gray-700">Menu Text (Numbered Options Only)</label>
-              <textarea 
-                :value="form.menu_text" 
-                @input="updateForm('menu_text', $event.target.value)"
-                rows="3"
-                :class="[errors.menu_text ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']" 
-                placeholder="Enter numbered options only (e.g., 1. Gas Leak&#10;2. Fuel/Petrol&#10;3. Oil)"
-              ></textarea>
-              <p v-if="errors.menu_text" class="mt-1 text-sm text-red-600">{{ errors.menu_text }}</p>
-              <p class="mt-1 text-xs text-gray-500">Enter only the numbered options. The title will be added automatically.</p>
-            </div>
-            
             <!-- Dynamic Flow Configuration -->
             <DynamicFlowConfig
               v-if="form.flow_type === 'dynamic'"

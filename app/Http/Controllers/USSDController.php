@@ -260,7 +260,6 @@ class USSDController extends Controller
             $validated = $request->validate([
                 'name' => 'required|string|max:255|min:2',
                 'title' => 'nullable|string|max:255',
-                'menu_text' => 'required_if:flow_type,static|nullable|string|max:1000|min:5',
                 'description' => 'nullable|string|max:500',
                 'flow_type' => 'required|in:static,dynamic',
                 'dynamic_config' => 'nullable|array',
@@ -279,9 +278,6 @@ class USSDController extends Controller
                 'name.min' => 'Flow name must be at least 2 characters.',
                 'name.max' => 'Flow name cannot exceed 255 characters.',
                 'title.max' => 'Title cannot exceed 255 characters.',
-                'menu_text.required_if' => 'Menu text is required for static flows.',
-                'menu_text.min' => 'Menu text must be at least 5 characters.',
-                'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
                 'description.max' => 'Description cannot exceed 500 characters.',
             ]);
 
@@ -298,7 +294,7 @@ class USSDController extends Controller
             $flow = $ussd->flows()->create([
                 'name' => $validated['name'],
                 'title' => $validated['title'] ?? null,
-                'menu_text' => $validated['menu_text'] ?? '',
+                'menu_text' => '', // Will be auto-generated from options
                 'description' => $validated['description'] ?? '',
                 'flow_type' => $validated['flow_type'],
                 'dynamic_config' => $validated['dynamic_config'] ?? null,
@@ -306,11 +302,6 @@ class USSDController extends Controller
                 'sort_order' => $ussd->flows()->count(),
                 'is_active' => true,
             ]);
-
-            // Parse menu_text to create initial options (only for static flows)
-            if ($flow->flow_type === 'static' && !empty($validated['menu_text'])) {
-                $flow->parseMenuTextToOptions();
-            }
 
             return response()->json([
                 'success' => true,
@@ -349,7 +340,7 @@ class USSDController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255|min:2',
             'title' => 'nullable|string|max:255',
-            'menu_text' => 'required_if:flow_type,static|nullable|string|max:1000|min:5',
+            'menu_text' => 'nullable|string|max:1000',
             'description' => 'nullable|string|max:500',
             'flow_type' => 'required|in:static,dynamic',
             'dynamic_config' => 'nullable|array',
@@ -377,8 +368,6 @@ class USSDController extends Controller
             'name.required' => 'Flow name is required.',
             'name.min' => 'Flow name must be at least 2 characters.',
             'name.max' => 'Flow name cannot exceed 255 characters.',
-            'menu_text.required_if' => 'Menu text is required for static flows.',
-            'menu_text.min' => 'Menu text must be at least 5 characters.',
             'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
             'description.max' => 'Description cannot exceed 500 characters.',
             'options.*.option_text.required' => 'Option text is required.',

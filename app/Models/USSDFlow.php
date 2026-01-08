@@ -75,15 +75,11 @@ class USSDFlow extends Model
     }
 
     /**
-     * Get the full display text (title + menu text)
+     * Get the full display text (menu text only, title is shown separately)
      */
     public function getFullDisplayText(?USSDSession $session = null): string
     {
-        $text = '';
-        if ($this->title) {
-            $text .= $this->title . "\n";
-        }
-        $text .= $this->menu_text;
+        $text = $this->menu_text;
         
         // Replace template variables if session is provided
         if ($session) {

@@ -87,6 +87,7 @@
                 <span v-if="!sessionStarted" class="text-xs">Enter your phone number to start simulation.</span>
                 <span v-else>
                   <div v-if="currentFlowTitle" class="font-semibold mb-1 text-xs">{{ currentFlowTitle }}</div>
+                  <div v-if="currentFlowDescription" class="text-xs text-gray-600 mb-1">{{ currentFlowDescription }}</div>
                   <div class="text-xs leading-relaxed">{{ menuText }}</div>
                 </span>
               </div>
@@ -242,6 +243,7 @@ const sessionEnded = ref(false);
 const sessionId = ref('');
 const menuText = ref('');
 const currentFlowTitle = ref('');
+const currentFlowDescription = ref('');
 const userInput = ref('');
 const errorMessage = ref('');
 const validationError = ref('');
@@ -285,6 +287,7 @@ function resetSimulator() {
   sessionId.value = '';
   menuText.value = '';
   currentFlowTitle.value = '';
+  currentFlowDescription.value = '';
   environment.value = props.ussd.environment?.name || 'testing';
   userInput.value = '';
   errorMessage.value = '';
@@ -380,6 +383,7 @@ async function startSession() {
       sessionId.value = data.session_id;
       menuText.value = data.menu_text;
       currentFlowTitle.value = data.flow_title || '';
+      currentFlowDescription.value = data.flow_description || '';
       userInput.value = '';
       validationError.value = ''; // Clear validation error on success
       
@@ -448,6 +452,7 @@ async function sendInput() {
     if (data.success) {
       menuText.value = data.message;
       currentFlowTitle.value = data.flow_title || '';
+      currentFlowDescription.value = data.flow_description || '';
       userInput.value = '';
       
       // Check if this was an API call result
