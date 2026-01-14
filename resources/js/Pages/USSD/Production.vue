@@ -49,7 +49,7 @@
                     <div class="ml-3">
                       <p class="text-sm font-medium text-gray-900">USSD Code</p>
                       <p class="text-sm text-gray-500 font-mono">
-                        {{ ussd.live_ussd_code || ussd.testing_ussd_code || 'Not configured' }}
+                        {{ ussd.pattern || 'Not configured' }}
                       </p>
                     </div>
                   </div>

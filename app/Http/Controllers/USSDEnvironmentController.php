@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\USSD;
-use App\Services\AfricastalkingService;
-use App\Services\ActivityService;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Illuminate\Support\Facades\Auth;
+use App\Models\Environment;
+use Illuminate\Http\Request;
+use App\Enums\EnvironmentType;
+use App\Services\ActivityService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+use App\Services\AfricastalkingService;
 
 class USSDEnvironmentController extends Controller
 {
@@ -40,43 +42,38 @@ class USSDEnvironmentController extends Controller
         }
 
         try {
-            $sandboxService = new AfricastalkingService('sandbox');
-            
-            // Generate sandbox USSD code if not exists
-            if (!$ussd->testing_ussd_code) {
-                $ussd->testing_ussd_code = '*123#' . str_pad($ussd->id, 3, '0', STR_PAD_LEFT);
+            // Ensure pattern exists (should already be set during USSD creation)
+            if (empty($ussd->pattern)) {
+                return redirect()->back()->with('error', 'USSD pattern is required. Please set a pattern for this USSD service.');
             }
 
             // Create webhook URL
             $webhookUrl = route('webhook.ussd.sandbox', ['ussd' => $ussd->id]);
 
-            // Create USSD application in Africastalking sandbox
-            $result = $sandboxService->createUssdApplication(
-                $ussd->testing_ussd_code,
-                $webhookUrl
-            );
-
-            if ($result) {
-                $ussd->update([
-                    'environment' => 'sandbox',
-                    'gateway_provider' => 'africastalking',
-                    'webhook_url' => $webhookUrl,
-                ]);
-
-                // Log the activity
-                ActivityService::log(
-                    Auth::id(),
-                    'ussd_deployed_sandbox',
-                    "Deployed USSD '{$ussd->name}' to sandbox environment",
-                    'App\Models\USSD',
-                    $ussd->id,
-                    ['ussd_code' => $ussd->testing_ussd_code]
-                );
-
-                return redirect()->back()->with('success', 'USSD deployed to sandbox successfully!');
+            // Get sandbox environment
+            $sandboxEnvironment = Environment::where('name', EnvironmentType::TESTING->value)->first();
+            if (!$sandboxEnvironment) {
+                return redirect()->back()->with('error', 'Sandbox environment not found. Please contact administrator.');
             }
 
-            return redirect()->back()->with('error', 'Failed to deploy to sandbox. Please check your Africastalking credentials.');
+            // Save the environment and webhook URL
+            $ussd->update([
+                'environment_id' => $sandboxEnvironment->id,
+                'gateway_provider' => 'africastalking',
+                'webhook_url' => $webhookUrl,
+            ]);
+
+            // Log the activity
+            ActivityService::log(
+                Auth::id(),
+                'ussd_deployed_sandbox',
+                "Deployed USSD '{$ussd->name}' to sandbox environment",
+                'App\Models\USSD',
+                $ussd->id,
+                ['ussd_code' => $ussd->pattern]
+            );
+
+            return redirect()->back()->with('success', 'USSD configured for sandbox environment! Please create the USSD application in AfricasTalking dashboard with code: ' . $ussd->pattern);
 
         } catch (\Exception $e) {
             Log::error('Failed to deploy USSD to sandbox', [
@@ -110,43 +107,42 @@ class USSDEnvironmentController extends Controller
         }
 
         try {
-            $liveService = new AfricastalkingService('live');
-            
-            // Generate live USSD code if not exists
-            if (!$ussd->live_ussd_code) {
-                $ussd->live_ussd_code = '*456#' . str_pad($ussd->id, 3, '0', STR_PAD_LEFT);
+            // Ensure pattern exists (should already be set during USSD creation)
+            if (empty($ussd->pattern)) {
+                return redirect()->back()->with('error', 'USSD pattern is required. Please set a pattern for this USSD service.');
             }
+
+            // Note: Pattern should be updated to the production code when moving to live
+            // The pattern field is what AfricasTalking will use to route requests
 
             // Create webhook URL
             $webhookUrl = route('webhook.ussd.live', ['ussd' => $ussd->id]);
+            
+            // Get production environment
+            $productionEnvironment = Environment::where('name', EnvironmentType::PRODUCTION->value)->first();
+            if (!$productionEnvironment) {
+                return redirect()->back()->with('error', 'Production environment not found. Please contact administrator.');
+            }
+            
+            // Save the environment and webhook URL
+            $ussd->update([
+                'pattern' => $ussd->pattern,
+                'environment_id' => $productionEnvironment->id,
+                'gateway_provider' => 'africastalking',
+                'webhook_url' => $webhookUrl,
+            ]);
 
-            // Create USSD application in Africastalking live
-            $result = $liveService->createUssdApplication(
-                $ussd->live_ussd_code,
-                $webhookUrl
+            // Log the activity
+            ActivityService::log(
+                Auth::id(),
+                'ussd_deployed_live',
+                "Deployed USSD '{$ussd->name}' to live environment",
+                'App\Models\USSD',
+                $ussd->id,
+                ['ussd_code' => $ussd->pattern]
             );
 
-            if ($result) {
-                $ussd->update([
-                    'environment' => 'live',
-                    'gateway_provider' => 'africastalking',
-                    'webhook_url' => $webhookUrl,
-                ]);
-
-                // Log the activity
-                ActivityService::log(
-                    Auth::id(),
-                    'ussd_deployed_live',
-                    "Deployed USSD '{$ussd->name}' to live environment",
-                    'App\Models\USSD',
-                    $ussd->id,
-                    ['ussd_code' => $ussd->live_ussd_code]
-                );
-
-                return redirect()->back()->with('success', 'USSD deployed to live environment successfully!');
-            }
-
-            return redirect()->back()->with('error', 'Failed to deploy to live. Please check your Africastalking credentials.');
+            return redirect()->back()->with('success', 'USSD configured for live environment! Please create the USSD application in AfricasTalking dashboard with code: ' . $ussd->pattern . '. Update the pattern field if you need to change the code.');
 
         } catch (\Exception $e) {
             Log::error('Failed to deploy USSD to live', [
@@ -191,17 +187,17 @@ class USSDEnvironmentController extends Controller
             'current' => $ussd->environment ?? 'simulation',
             'simulation' => [
                 'status' => 'available',
-                'ussd_code' => $ussd->testing_ussd_code ?? '*123#' . str_pad($ussd->id, 3, '0', STR_PAD_LEFT),
+                'ussd_code' => $ussd->pattern,
                 'description' => 'Local testing environment'
             ],
             'sandbox' => [
                 'status' => $ussd->environment === 'sandbox' ? 'active' : 'available',
-                'ussd_code' => $ussd->testing_ussd_code,
+                'ussd_code' => $ussd->pattern,
                 'description' => 'Africastalking sandbox environment'
             ],
             'live' => [
                 'status' => $ussd->environment === 'live' ? 'active' : 'pending',
-                'ussd_code' => $ussd->live_ussd_code,
+                'ussd_code' => $ussd->pattern,
                 'description' => 'Production environment'
             ]
         ];

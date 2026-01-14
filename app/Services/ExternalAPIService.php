@@ -31,6 +31,7 @@ class ExternalAPIService
         // Always make real API calls regardless of environment
         // Removed simulation mode check - all calls are now real
         
+        $response = null;
         try {
             // Build request data
             $requestData = $this->buildRequestData($apiConfig, $session, $userInput);
@@ -38,7 +39,7 @@ class ExternalAPIService
             // Make the API call
             $response = $this->makeApiCall($apiConfig, $requestData);
             
-            // Process response
+            // Process response (may throw exception if success criteria not met)
             $processedResponse = $this->processResponse($apiConfig, $response, $session);
             
             // Calculate response time
@@ -59,8 +60,14 @@ class ExternalAPIService
             // Update statistics
             $apiConfig->updateCallStats(false, $responseTime);
             
-            // Log failed call
-            $this->logApiCall($apiConfig, $session, $requestData ?? [], null, $responseTime, false, $e->getMessage());
+            // Log failed call with actual response (response will be set if makeApiCall succeeded but processResponse failed)
+            // If response is null, it means makeApiCall threw an exception (connection error, etc.)
+            $errorMessage = $e->getMessage();
+            if ($response && isset($response['status'])) {
+                $errorMessage .= ' (HTTP ' . $response['status'] . ')';
+            }
+            
+            $this->logApiCall($apiConfig, $session, $requestData ?? [], $response, $responseTime, false, $errorMessage);
             
             // Return error response
             return $this->handleApiError($apiConfig, $e);
@@ -81,18 +88,40 @@ class ExternalAPIService
         $requestMapping = $apiConfig->getRequestMapping();
         $requestTemplate = $apiConfig->getRequestTemplate();
         
+        // Convert request mapping from [{key, value}] array format to {key: value} object format
+        $normalizedMapping = [];
+        if (is_array($requestMapping)) {
+            foreach ($requestMapping as $key => $value) {
+                if (is_array($value) && isset($value['key']) && isset($value['value'])) {
+                    // Array format: [{key: 'field', value: 'mapping'}]
+                    $normalizedMapping[$value['key']] = $value['value'];
+                } elseif (is_string($key) && (is_string($value) || is_numeric($value))) {
+                    // Already in object format: {key: value}
+                    $normalizedMapping[$key] = $value;
+                }
+            }
+        }
+        $requestMapping = $normalizedMapping;
+        
         // Build data context for mapping
         $context = $this->buildContext($session, $userInput);
         
-        // Add session data to request data for URL template processing
-        $sessionData = $session->session_data ?? [];
-        $requestData = array_merge($requestData, $sessionData);
-        
-        // Apply request mapping
+        // Apply request mapping - only include fields specified in mapping
+        $sessionData = is_array($session->session_data) ? $session->session_data : [];
         foreach ($requestMapping as $apiField => $mappingRule) {
             $value = $this->resolveMappingValue($mappingRule, $context);
-            if ($value !== null) {
+            // Include the field even if value is null (to ensure all mapped fields are sent)
+            // Only skip if the mapping rule itself is empty/null
+            if ($mappingRule !== null && $mappingRule !== '') {
                 $requestData[$apiField] = $value;
+                // Log warning only for critical fields
+                if (($value === null || $value === '') && in_array($apiField, ['phone_number', 'number', 'amount', 'network', 'service'])) {
+                    Log::warning('Request mapping resolved to empty for critical field', [
+                        'api_field' => $apiField,
+                        'mapping_rule' => $mappingRule,
+                        'session_id' => $session->id,
+                    ]);
+                }
             }
         }
         
@@ -106,19 +135,51 @@ class ExternalAPIService
 
     /**
      * Build context data for mapping
+     * Supports both static and dynamic flow data access patterns
      */
     private function buildContext(USSDSession $session, array $userInput): array
     {
         $sessionData = $session->session_data ?? [];
         
+        // Resolve phone number with priority: use_registered_phone > collected input > API response > session phone
+        $resolvedPhoneNumber = $this->resolvePhoneNumber($session, $sessionData);
+        
+        // Detect flow type from current flow
+        $currentFlow = $session->currentFlow;
+        $isDynamicFlow = $currentFlow && $currentFlow->flow_type === 'dynamic';
+        
+        // For static flows: build context with direct access to fields
+        $staticContext = [];
+        if (!$isDynamicFlow) {
+            // Top-level scalar fields from session_data
+            $staticContext = array_filter($sessionData, function($value) {
+                return is_scalar($value) || is_null($value);
+            }, ARRAY_FILTER_USE_KEY);
+            
+            // Also include selected_item_data fields (if not already at top level)
+            // This allows {amount} to work even if it's only in selected_item_data
+            if (isset($sessionData['selected_item_data']) && is_array($sessionData['selected_item_data'])) {
+                foreach ($sessionData['selected_item_data'] as $key => $value) {
+                    if ((is_scalar($value) || is_null($value)) && !isset($staticContext[$key])) {
+                        $staticContext[$key] = $value;
+                    }
+                }
+            }
+        }
+        
         return [
             'session' => [
                 'id' => $session->id,
                 'session_id' => $session->session_id,
-                'phone_number' => $session->phone_number,
+                'phone_number' => $resolvedPhoneNumber,
                 'step_count' => $session->step_count,
-                'data' => $sessionData,
+                'data' => $sessionData, // For static flows: use {session.data.field}
             ],
+            // For static flows: direct access to top-level session_data fields
+            // Allows {amount}, {network}, {service} etc. to work directly
+            ...$staticContext,
+            // For dynamic flows: selected_item_data access
+            'selected_item_data' => $sessionData['selected_item_data'] ?? [],
             'ussd' => [
                 'id' => $session->ussd?->id,
                 'name' => $session->ussd?->name,
@@ -132,6 +193,39 @@ class ExternalAPIService
             'reference' => Str::uuid()->toString(),
         ];
     }
+    
+    /**
+     * Resolve phone number with priority logic
+     * Priority: use_registered_phone > collected input > API response > session phone
+     */
+    private function resolvePhoneNumber(USSDSession $session, array $sessionData): string
+    {
+        // If use_registered_phone is selected, use session phone
+        if (isset($sessionData['recipient_type']) && $sessionData['recipient_type'] === 'self') {
+            return $session->phone_number ?? '';
+        }
+        
+        // Priority 1: Check collected input phone (from input_phone action)
+        if (isset($sessionData['input_phone']) && !empty($sessionData['input_phone'])) {
+            return $sessionData['input_phone'];
+        }
+        
+        // Also check collected_inputs array
+        if (isset($sessionData['collected_inputs']['input_phone']) && !empty($sessionData['collected_inputs']['input_phone'])) {
+            return $sessionData['collected_inputs']['input_phone'];
+        }
+        
+        // Priority 2: Check API response phone fields
+        $phoneFields = ['phone_number', 'phone', 'number', 'recipient_phone'];
+        foreach ($phoneFields as $field) {
+            if (isset($sessionData[$field]) && !empty($sessionData[$field])) {
+                return $sessionData[$field];
+            }
+        }
+        
+        // Priority 3: Fallback to session phone number
+        return $session->phone_number ?? '';
+    }
 
     /**
      * Resolve mapping value from context
@@ -141,7 +235,17 @@ class ExternalAPIService
         // Handle simple field references like {session.phone_number}
         if (preg_match('/^\{([^}]+)\}$/', $mappingRule, $matches)) {
             $path = $matches[1];
-            return $this->getNestedValue($context, $path);
+            $value = $this->getNestedValue($context, $path);
+            
+            // Log warning only for critical fields that are empty
+            if (empty($value) && $value !== '0' && $value !== 0 && in_array($path, ['network', 'amount', 'phone_number', 'number', 'service'])) {
+                Log::warning('Template variable resolved to empty for critical field', [
+                    'path' => $path,
+                    'session_id' => $context['session']['id'] ?? null,
+                ]);
+            }
+            
+            return $value;
         }
         
         // Handle static values
@@ -152,12 +256,22 @@ class ExternalAPIService
         // Handle template strings like "Hello {session.phone_number}"
         return preg_replace_callback('/\{([^}]+)\}/', function($matches) use ($context) {
             $value = $this->getNestedValue($context, $matches[1]);
+            
+            // Log warning only for critical fields that are empty
+            if (empty($value) && $value !== '0' && $value !== 0 && in_array($matches[1], ['network', 'amount', 'phone_number', 'number', 'service'])) {
+                Log::warning('Template variable in string resolved to empty for critical field', [
+                    'path' => $matches[1],
+                    'session_id' => $context['session']['id'] ?? null,
+                ]);
+            }
+            
             return $value ?? '';
         }, $mappingRule);
     }
 
     /**
      * Get nested value from array using dot notation
+     * Supports multiple access patterns for static vs dynamic flows
      */
     private function getNestedValue(array $array, string $path)
     {
@@ -166,6 +280,15 @@ class ExternalAPIService
         
         foreach ($keys as $key) {
             if (!isset($value[$key])) {
+                // Fallback: For static flows, try direct access to session.data
+                // This allows {amount} to work instead of requiring {session.data.amount}
+                if (count($keys) === 1 && isset($array['session']['data'][$path])) {
+                    return $array['session']['data'][$path];
+                }
+                // Also try selected_item_data for dynamic flows
+                if (count($keys) === 1 && isset($array['selected_item_data'][$path])) {
+                    return $array['selected_item_data'][$path];
+                }
                 return null;
             }
             $value = $value[$key];
@@ -237,8 +360,31 @@ class ExternalAPIService
         // Prepare headers
         $headers = $this->prepareHeaders($apiConfig);
         
+        // Check if Content-Type is form data or JSON
+        $contentType = strtolower($headers['Content-Type'] ?? 'application/json');
+        $isUrlEncoded = $contentType === 'application/x-www-form-urlencoded';
+        $isMultipart = $contentType === 'multipart/form-data';
+        $isJson = $contentType === 'application/json';
+        
         // Prepare request
-        $request = Http::timeout($timeout)->withHeaders($headers);
+        $request = Http::timeout($timeout);
+        
+        // Handle different content types
+        if ($isUrlEncoded) {
+            // URL-encoded form data (standard form submission)
+            $request = $request->asForm();
+            // Remove Content-Type from headers as asForm() sets it automatically
+            unset($headers['Content-Type']);
+        } elseif ($isMultipart) {
+            unset($headers['Content-Type']);
+        } elseif ($isJson) {
+           
+            $request = $request->asJson();
+            unset($headers['Content-Type']);
+        }
+        
+        // Add remaining headers
+        $request = $request->withHeaders($headers);
         
         // Add authentication
         $request = $this->addAuthentication($request, $apiConfig);
@@ -467,14 +613,13 @@ class ExternalAPIService
         $authHeaders = $this->getActualAuthHeaders($apiConfig);
         $actualHeaders = array_merge($actualHeaders, $authHeaders);
         
-        Log::info('ACTUAL HTTP REQUEST SENT', [
+        // Log request summary (without sensitive data)
+        Log::info('External API request', [
             'api_config_id' => $apiConfig->id,
             'api_name' => $apiConfig->name,
             'method' => $method,
             'url' => $url,
-            'headers' => $actualHeaders,
-            'body' => $resolvedRequestData, // Use resolved data!
-            'timestamp' => now()->toISOString(),
+            'has_body' => !empty($resolvedRequestData),
         ]);
     }
 
@@ -535,14 +680,12 @@ class ExternalAPIService
      */
     private function logActualHttpResponse(ExternalAPIConfiguration $apiConfig, $response): void
     {
-        Log::info('ACTUAL HTTP RESPONSE RECEIVED', [
+        // Log response summary (without full body for privacy/security)
+        Log::info('External API response', [
             'api_config_id' => $apiConfig->id,
             'api_name' => $apiConfig->name,
             'status_code' => $response->status(),
-            'response_headers' => $response->headers(),
-            'response_body' => $response->json() ?? $response->body(),
             'successful' => $response->successful(),
-            'timestamp' => now()->toISOString(),
         ]);
     }
 
@@ -738,7 +881,7 @@ class ExternalAPIService
         ?string $errorMessage = null,
         bool $simulation = false
     ): void {
-        Log::info('External API Call', [
+        $logData = [
             'api_config_id' => $apiConfig->id,
             'api_name' => $apiConfig->name,
             'session_id' => $session->id,
@@ -750,19 +893,26 @@ class ExternalAPIService
             'error_message' => $errorMessage,
             'simulation' => $simulation,
             'timestamp' => now(),
-        ]);
+        ];
+        
+        // Use error level for failures, info level for successes
+        if (!$success) {
+            Log::error('External API Call Failed', $logData);
+        } else {
+            Log::info('External API Call', $logData);
+        }
     }
 
     /**
      * Test API configuration
      */
-    public function testApiConfiguration(ExternalAPIConfiguration $apiConfig): array
+    public function testApiConfiguration(ExternalAPIConfiguration $apiConfig, array $customTestData = []): array
     {
         $startTime = microtime(true);
         
         try {
-            // Build minimal test data for API testing
-            $testData = $this->buildTestRequestData($apiConfig);
+            // Build test data using request mapping (like real API calls)
+            $testData = $this->buildTestRequestDataWithMapping($apiConfig, $customTestData);
             
             // Log the test request details (UNMASKED for debugging)
             $this->loggingService->logTestRequestUnmasked($apiConfig, $testData);
@@ -815,6 +965,104 @@ class ExternalAPIService
     /**
      * Build minimal test data for API testing
      */
+    /**
+     * Build test request data using request mapping (like real API calls)
+     */
+    private function buildTestRequestDataWithMapping(ExternalAPIConfiguration $apiConfig, array $customTestData = []): array
+    {
+        $requestData = [];
+        
+        // Get request mapping configuration
+        $requestMapping = $apiConfig->getRequestMapping();
+        $requestTemplate = $apiConfig->getRequestTemplate();
+        
+        // Convert request mapping from [{key, value}] array format to {key: value} object format
+        $normalizedMapping = [];
+        if (is_array($requestMapping)) {
+            foreach ($requestMapping as $key => $value) {
+                if (is_array($value) && isset($value['key']) && isset($value['value'])) {
+                    // Array format: [{key: 'field', value: 'mapping'}]
+                    $normalizedMapping[$value['key']] = $value['value'];
+                } elseif (is_string($key) && (is_string($value) || is_numeric($value))) {
+                    // Already in object format: {key: value}
+                    $normalizedMapping[$key] = $value;
+                }
+            }
+        }
+        $requestMapping = $normalizedMapping;
+        
+        // Build test context (simulating session data)
+        $testContext = $this->buildTestContext($customTestData);
+        
+        // Apply request mapping
+        foreach ($requestMapping as $apiField => $mappingRule) {
+            $value = $this->resolveMappingValue($mappingRule, $testContext);
+            if ($value !== null) {
+                $requestData[$apiField] = $value;
+            }
+        }
+        
+        // Apply request template if provided (template values override mapping)
+        if (!empty($requestTemplate)) {
+            $requestData = array_merge($requestTemplate, $requestData);
+        }
+        
+        // If no mapping or template, use custom test data or minimal defaults
+        if (empty($requestData) && !empty($customTestData)) {
+            $requestData = $customTestData;
+        } elseif (empty($requestData)) {
+            $requestData = [
+                'test' => true,
+                'timestamp' => now()->toISOString(),
+            ];
+        }
+        
+        // Always add a test identifier to distinguish test calls
+        $requestData['_test_call'] = true;
+        $requestData['_test_timestamp'] = now()->toISOString();
+        
+        return $requestData;
+    }
+    
+    /**
+     * Build test context for mapping (simulates session data)
+     */
+    private function buildTestContext(array $customTestData = []): array
+    {
+        // Default test values for common template variables
+        $defaultTestData = [
+            'session' => [
+                'id' => 999,
+                'session_id' => 'test_session_' . time(),
+                'phone_number' => $customTestData['phone_number'] ?? '+2348012345678',
+                'step_count' => 1,
+                'data' => array_merge([
+                    'amount' => $customTestData['amount'] ?? '1000',
+                    'phone' => $customTestData['phone'] ?? '+2348012345678',
+                    'network' => $customTestData['network'] ?? 'MTN',
+                    'Pin' => $customTestData['Pin'] ?? '1234',
+                    'selected_item_data' => [
+                        'network' => $customTestData['network'] ?? 'MTN',
+                        'name' => $customTestData['service_name'] ?? 'Test Service',
+                    ],
+                ], $customTestData),
+            ],
+            'ussd' => [
+                'id' => 1,
+                'name' => 'Test USSD',
+                'pattern' => '*123#',
+            ],
+            'user' => [
+                'id' => 1,
+            ],
+            'input' => $customTestData,
+            'timestamp' => now()->toISOString(),
+            'reference' => 'TEST_' . Str::uuid()->toString(),
+        ];
+        
+        return $defaultTestData;
+    }
+
     private function buildTestRequestData(ExternalAPIConfiguration $apiConfig): array
     {
         // Get request template if available (this is the primary source)

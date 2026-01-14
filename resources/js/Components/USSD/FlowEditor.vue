@@ -2,10 +2,40 @@
   <div class="col-span-3 bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-h-[400px]">
     <div v-if="flow">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-900">Edit Flow: {{ flow.name }}</h3>
+        <div class="flex-1 mr-4">
+          <div class="flex items-center gap-2 mb-1">
+            <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide">Flow Name</label>
+            <span v-if="flow.is_root" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+              Root Flow
+            </span>
+          </div>
+          <input
+            :value="flow.name || ''"
+            @input="updateFlow('name', $event.target.value)"
+            type="text"
+            :disabled="flow.is_root"
+            :class="[
+              errors?.name ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500',
+              flow.is_root ? 'bg-gray-100 cursor-not-allowed' : '',
+              'mt-1 block w-full rounded shadow-sm text-sm'
+            ]"
+            :placeholder="flow.is_root ? 'Root flow name cannot be changed' : 'Enter a unique flow name (e.g., buy_data_flow)'"
+          />
+          <p v-if="errors?.name" class="mt-1 text-xs text-red-600">
+            {{ Array.isArray(errors.name) ? errors.name[0] : errors.name }}
+          </p>
+          <p v-if="flow.is_root" class="mt-1 text-xs text-gray-500">
+            The root flow name cannot be edited as it serves as the entry point for your USSD service.
+          </p>
+        </div>
         <button 
           @click="$emit('delete-flow', flow)" 
-          class="px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200"
+          :disabled="flow.is_root"
+          :class="[
+            flow.is_root 
+              ? 'px-2 py-1 rounded bg-gray-100 text-gray-400 text-xs font-semibold cursor-not-allowed' 
+              : 'px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200'
+          ]"
         >
           Delete Flow
         </button>
@@ -45,14 +75,18 @@
       <!-- Title Editor -->
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-700">Title/Header</label>
-        <input 
-          :value="flow.title" 
+        <textarea 
+          :value="flow.title || ''" 
           @input="updateFlow('title', $event.target.value)"
-          type="text"
-          class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+          rows="2"
+          :class="[
+            errors?.title ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500',
+            'mt-1 block w-full rounded shadow-sm resize-y'
+          ]"
           placeholder="Enter title/header (e.g., Report type of fire)"
-        />
-        <p class="mt-1 text-xs text-gray-500">This will appear above the menu options</p>
+        ></textarea>
+        <p v-if="errors?.title" class="mt-1 text-sm text-red-600">{{ Array.isArray(errors.title) ? errors.title[0] : errors.title }}</p>
+        <p v-else class="mt-1 text-xs text-gray-500">This will appear above the menu options. Supports multiple lines.</p>
       </div>
       
       <!-- Dynamic Flow Configuration -->
@@ -178,6 +212,10 @@ defineProps({
   saving: {
     type: Boolean,
     default: false
+  },
+  errors: {
+    type: Object,
+    default: () => ({})
   }
 })
 

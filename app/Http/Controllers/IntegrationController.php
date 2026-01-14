@@ -207,14 +207,17 @@ class IntegrationController extends Controller
     /**
      * Test API configuration
      */
-    public function test(ExternalAPIConfiguration $apiConfig)
+    public function test(Request $request, ExternalAPIConfiguration $apiConfig)
     {
         // Ensure user owns this API or it's a marketplace template
         if ($apiConfig->user_id !== Auth::id() && !$apiConfig->is_marketplace_template) {
             abort(403);
         }
 
-        $result = $this->externalApiService->testApiConfiguration($apiConfig);
+        // Get optional test data from request (for testing with custom values)
+        $testData = $request->input('test_data', []);
+
+        $result = $this->externalApiService->testApiConfiguration($apiConfig, $testData);
 
         return response()->json($result);
     }

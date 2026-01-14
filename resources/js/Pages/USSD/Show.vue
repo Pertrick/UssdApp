@@ -288,14 +288,8 @@ const formatDate = (dateString) => {
 }
 
 const getCurrentUssdCode = () => {
-    // Use the current USSD code based on environment
-    if (props.ussd.environment?.name === 'production') {
-        return props.ussd.live_ussd_code || 'Not configured'
-    } else if (props.ussd.environment?.name === 'testing') {
-        return props.ussd.testing_ussd_code || 'Not configured'
-    }
-    // Fallback to testing code, then live code, then pattern, then 'Not configured'
-    return props.ussd.testing_ussd_code || props.ussd.live_ussd_code || props.ussd.pattern || 'Not configured'
+    // Pattern is used for all environments (testing and production)
+    return props.ussd.pattern || 'Not configured'
 }
 
 const toggleStatus = () => {
@@ -318,17 +312,13 @@ const canTestSimulator = computed(() => {
         }
     }
 
-    // Check if USSD has a code configured
-    const environment = props.ussd.environment?.name || 'testing'
-    const hasCode = environment === 'production' || environment === 'live'
-        ? !!(props.ussd.live_ussd_code || props.ussd.pattern)
-        : !!(props.ussd.testing_ussd_code || props.ussd.pattern)
+    // Check if USSD has a code configured (pattern is used for all environments)
+    const hasCode = !!(props.ussd.pattern)
 
     if (!hasCode) {
-        const codeType = (environment === 'production' || environment === 'live') ? 'live' : 'testing'
         return {
             canTest: false,
-            error: `This USSD service does not have a ${codeType} USSD code configured. Please configure a ${codeType} USSD code before testing.`
+            error: 'This USSD service does not have a USSD code (pattern) configured. Please configure a pattern before testing.'
         }
     }
 

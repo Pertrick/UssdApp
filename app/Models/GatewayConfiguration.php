@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EnvironmentType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Encrypted;
@@ -31,8 +32,9 @@ class GatewayConfiguration extends Model
     /**
      * Get the default gateway configuration for a provider
      */
-    public static function getDefault(string $provider, string $environment = 'production'): ?self
+    public static function getDefault(string $provider, ?string $environment = null): ?self
     {
+        $environment = $environment ?? EnvironmentType::PRODUCTION->value;
         return static::where('gateway_provider', $provider)
             ->where('environment', $environment)
             ->where('is_active', true)

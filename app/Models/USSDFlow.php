@@ -90,24 +90,118 @@ class USSDFlow extends Model
     }
     
     /**
+     * Get the processed title with template variables replaced
+     */
+    public function getProcessedTitle(?USSDSession $session = null): string
+    {
+        $title = $this->title ?? '';
+        
+        // Replace template variables if session is provided
+        if ($session && !empty($title)) {
+            $title = $this->replaceTemplateVariables($title, $session);
+        }
+        
+        return $title;
+    }
+    
+    /**
      * Replace template variables in text with session data
      */
     private function replaceTemplateVariables(string $text, USSDSession $session): string
     {
         $sessionData = $session->session_data ?? [];
         
-        return preg_replace_callback('/\{\{([^}]+)\}\}/', function($matches) use ($session, $sessionData) {
-            $path = trim($matches[1]);
+        $isDynamicFlow = $this->flow_type === 'dynamic';
+        
+        $staticContext = [];
+        if (!$isDynamicFlow) {
+            $staticContext = array_filter($sessionData, function($value) {
+                return is_scalar($value) || is_null($value);
+            }, ARRAY_FILTER_USE_KEY);
             
-            // Handle session variables
-            if (str_starts_with($path, 'session.')) {
-                $field = substr($path, 8); // Remove 'session.' prefix
-                return $sessionData[$field] ?? '';
+
+            if (isset($sessionData['selected_item_data']) && is_array($sessionData['selected_item_data'])) {
+                foreach ($sessionData['selected_item_data'] as $key => $value) {
+                    if ((is_scalar($value) || is_null($value)) && !isset($staticContext[$key])) {
+                        $staticContext[$key] = $value;
+                    }
+                }
+            }
+        }
+        
+        $context = [
+            'session' => [
+                'id' => $session->id,
+                'session_id' => $session->session_id,
+                'phone_number' => $session->phone_number,
+                'step_count' => $session->step_count,
+                'data' => $sessionData,
+            ],
+            ...$staticContext,
+            'selected_item_data' => $sessionData['selected_item_data'] ?? [],
+        ];
+        
+        $sanitizationService = app(\App\Services\SanitizationService::class);
+        
+        return preg_replace_callback('/\{\{([^}]+)\}\}/', function($matches) use ($context, $sessionData, $sanitizationService) {
+            $path = trim($matches[1]);
+            $value = '';
+            
+            if (str_contains($path, '.')) {
+                $value = $this->getNestedValueFromContext($path, $context, $sessionData);
+            } elseif (isset($context[$path])) {
+                $value = $context[$path];
+            } else {
+                $value = $sessionData[$path] ?? '';
             }
             
-            // Handle direct session data access
-            return $sessionData[$path] ?? '';
+            $value = is_scalar($value) ? (string) $value : '';
+            return $sanitizationService->sanitizeOutput($value, 500); // Limit individual variable length
         }, $text);
+    }
+    
+    /**
+     * Get nested value from context using dot notation
+     */
+    private function getNestedValueFromContext(string $path, array $context, array $sessionData)
+    {
+        if (str_starts_with($path, 'session.')) {
+            $remainingPath = substr($path, 8);
+
+            if ($remainingPath === 'phone_number') {
+                if (isset($sessionData['recipient_type']) && $sessionData['recipient_type'] === 'self') {
+                    return $context['session']['phone_number'] ?? '';
+                }
+                
+                if (isset($sessionData['input_phone']) && !empty($sessionData['input_phone'])) {
+                    return $sessionData['input_phone'];
+                }
+
+                if (isset($sessionData['collected_inputs']['input_phone']) && !empty($sessionData['collected_inputs']['input_phone'])) {
+                    return $sessionData['collected_inputs']['input_phone'];
+                }
+                
+                $phoneFields = ['phone_number', 'phone', 'number', 'recipient_phone'];
+                foreach ($phoneFields as $field) {
+                    if (isset($sessionData[$field]) && !empty($sessionData[$field])) {
+                        return $sessionData[$field];
+                    }
+                }
+                
+                return $context['session']['phone_number'] ?? '';
+            }
+            
+            if (str_starts_with($remainingPath, 'data.')) {
+                $dataPath = substr($remainingPath, 5); // Remove 'data.' prefix
+                return data_get($sessionData, $dataPath, '');
+            }
+            
+            // Handle other session properties
+            return data_get($context['session'], $remainingPath, '');
+        }
+        
+        // Handle direct session data access with dot notation (e.g., selected_item_data.coded)
+        return data_get($sessionData, $path, '');
     }
 
     /**

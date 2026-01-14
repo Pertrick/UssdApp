@@ -60,7 +60,7 @@ class InvoiceService
                 'period_start' => $periodStart,
                 'period_end' => $periodEnd,
                 'issue_date' => now(),
-                'due_date' => now()->addDays($business->payment_terms_days ?? 15),
+                'due_date' => now()->addDays((int) ($business->payment_terms_days ?? 15)),
                 'currency' => $business->billing_currency ?? config('app.currency', 'NGN'),
                 'status' => Invoice::STATUS_DRAFT,
                 'created_by' => $createdBy,

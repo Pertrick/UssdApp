@@ -40,7 +40,7 @@ class USSDFlowOption extends Model
     }
 
     /**
-     * Get the action_data attribute as an object (not array)
+     * Get the action_data attribute as an array (for easier access)
      */
     public function getActionDataAttribute($value)
     {
@@ -50,12 +50,8 @@ class USSDFlowOption extends Model
         
         $decoded = json_decode($value, true);
         
-        // Ensure we always return an object, not an array
-        if (is_array($decoded)) {
-            return (object) $decoded;
-        }
-        
-        return $decoded ?: [];
+        // Return as array to preserve boolean values and make access easier
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**

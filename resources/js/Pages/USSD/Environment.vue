@@ -214,7 +214,7 @@
                     </button>
                     
                     <button
-                      v-else-if="key === 'live_ussd_code'"
+                      v-else-if="key === 'pattern'"
                       @click="showGatewayModal = true"
                       class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
                     >
@@ -359,24 +359,11 @@
               />
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Live USSD Code (Optional)</label>
-              <input 
-                type="text"
-                v-model="gatewayForm.live_ussd_code"
-                placeholder="e.g., *384*123#"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Testing USSD Code (Optional)</label>
-              <input 
-                type="text"
-                v-model="gatewayForm.testing_ussd_code"
-                placeholder="e.g., *123#"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div class="bg-blue-50 border border-blue-200 rounded p-3">
+              <p class="text-sm text-blue-800">
+                <strong>Note:</strong> The USSD code (pattern) is configured in the USSD service settings, not here. 
+                Update the pattern field when moving to production.
+              </p>
             </div>
           </div>
 
@@ -609,8 +596,6 @@ const gatewayForm = ref({
   gateway_provider: props.ussd?.gateway_provider || '',
   api_key: '',
   username: '',
-  live_ussd_code: props.ussd?.live_ussd_code || '',
-  testing_ussd_code: props.ussd?.testing_ussd_code || '',
 })
 
 const webhookForm = ref({
@@ -624,13 +609,8 @@ const formatDate = (date) => {
 }
 
 const getCurrentUssdCode = () => {
-  if (props.ussd.environment?.name === 'production') {
-    return props.ussd.live_ussd_code || 'Not configured'
-  }
-  
-  if (props.ussd.environment?.name === 'testing') {
-    return props.ussd.testing_ussd_code || props.ussd.pattern || 'Not configured'
-  }
+  // Pattern is used for all environments (testing and production)
+  return props.ussd.pattern || 'Not configured'
   
 }
 
@@ -731,8 +711,6 @@ const saveGateway = async () => {
       // Update form with returned data (credentials will be decrypted from server)
       if (data.ussd) {
         gatewayForm.value.gateway_provider = data.ussd.gateway_provider || gatewayForm.value.gateway_provider
-        gatewayForm.value.live_ussd_code = data.ussd.live_ussd_code || gatewayForm.value.live_ussd_code
-        gatewayForm.value.testing_ussd_code = data.ussd.testing_ussd_code || gatewayForm.value.testing_ussd_code
         
         // Update credentials if returned (they should be decrypted)
         if (data.ussd.gateway_credentials && typeof data.ussd.gateway_credentials === 'object') {
@@ -797,10 +775,7 @@ onMounted(() => {
   // Initialize forms with current values
   if (props.ussd) {
     gatewayForm.value.gateway_provider = props.ussd.gateway_provider || ''
-    gatewayForm.value.live_ussd_code = props.ussd.live_ussd_code || ''
-    gatewayForm.value.testing_ussd_code = props.ussd.testing_ussd_code || ''
-    
-    // Extract credentials from encrypted gateway_credentials array
+  
     if (props.ussd.gateway_credentials && typeof props.ussd.gateway_credentials === 'object') {
       gatewayForm.value.api_key = props.ussd.gateway_credentials.api_key || ''
       gatewayForm.value.username = props.ussd.gateway_credentials.username || ''

@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Log;
 use App\Services\GatewayCostService;
 use App\Services\DynamicFlowProcessor;
 use App\Services\APITestLoggingService;
+use App\Models\ExternalAPIConfiguration;
+use App\Enums\EnvironmentType;
 
 class USSDSessionService
 {
@@ -43,6 +45,17 @@ class USSDSessionService
      */
     public function startSession(USSD $ussd, ?string $phoneNumber = null, ?string $userAgent = null, ?string $ipAddress = null, ?string $environment = null, ?string $sessionId = null): USSDSession
     {
+        $rateLimitService = app(SessionRateLimitService::class);
+        
+        if ($phoneNumber && $rateLimitService->isPhoneBlocked($phoneNumber)) {
+            throw new \Exception('Access temporarily blocked. Please try again later.');
+        }
+        
+        if ($phoneNumber && !$rateLimitService->checkNewSessionRateLimit($phoneNumber)) {
+            $rateLimitService->blockPhone($phoneNumber, 3600); // Block for 1 hour
+            throw new \Exception('Too many session attempts. Please try again later.');
+        }
+        
         // Get the root flow for this USSD
         $rootFlow = USSDFlow::where('ussd_id', $ussd->id)
             ->where('is_root', true)
@@ -53,32 +66,37 @@ class USSDSessionService
             throw new \Exception('No root flow found for this USSD service');
         }
 
-        $sessionEnvironment = $environment ?? $ussd->environment?->name ?? 'testing';
+        $sessionEnvironment = $environment ?? $ussd->environment?->name ?? EnvironmentType::TESTING->value;
         
         // Get environment ID
         $environmentModel = Environment::where('name', $sessionEnvironment)->first();
         $environmentId = $environmentModel?->id;
 
         if ($sessionId) {
+            // SECURITY: Validate session belongs to correct USSD
             $existingSession = USSDSession::where('session_id', $sessionId)
-                ->where('ussd_id', $ussd->id)
+                ->where('ussd_id', $ussd->id) // SECURITY: Ensure session belongs to this USSD
                 ->where('status', 'active')
                 ->where('expires_at', '>', now())
                 ->first();
 
             if ($existingSession) {
-                // Reuse existing session - update activity, don't bill again
-                $existingSession->update([
-                    'last_activity' => now(),
-                ]);
-                
-                Log::info('Reusing existing session', [
-                    'session_id' => $existingSession->id,
-                    'ussd_session_id' => $existingSession->session_id,
-                    'phone_number' => $phoneNumber,
-                ]);
-                
-                return $existingSession;
+                // SECURITY: Additional validation - verify phone number matches if provided
+                if ($phoneNumber && $existingSession->phone_number !== $phoneNumber) {
+                    Log::warning('Session phone number mismatch', [
+                        'session_id' => $sessionId,
+                        'expected_phone' => substr($existingSession->phone_number ?? '', 0, 4) . '****',
+                        'provided_phone' => substr($phoneNumber, 0, 4) . '****',
+                    ]);
+                    // Don't reuse session if phone doesn't match
+                } else {
+                    // Reuse existing session - update activity, don't bill again
+                    $existingSession->update([
+                        'last_activity' => now(),
+                    ]);
+                    
+                    return $existingSession;
+                }
             }
         }
 
@@ -92,7 +110,7 @@ class USSDSessionService
             'status' => 'active',
             'step_count' => 0,
             'last_activity' => now(),
-            'expires_at' => now()->addMinutes(30), // 30 minute timeout
+            'expires_at' => now()->addMinutes((int) config('ussd.session_timeout', 30)), // Configurable timeout
             'user_agent' => $userAgent,
             'ip_address' => $ipAddress,
             'session_data' => [
@@ -108,10 +126,10 @@ class USSDSessionService
         $this->logSessionAction($session, 'session_start', null, $rootFlow->menu_text);
         
         // Handle billing based on environment
-        if ($sessionEnvironment === 'testing') {
+        if ($sessionEnvironment === EnvironmentType::TESTING->value) {
             // Simulate billing for testing sessions (no real charges)
             $this->simulateBilling($session);
-        } elseif ($sessionEnvironment === 'production' || $sessionEnvironment === 'live') {
+        } elseif ($sessionEnvironment === EnvironmentType::PRODUCTION->value || $sessionEnvironment === 'live') {
             // Bill production/live sessions (real charges)
             // Only bill if session hasn't been billed yet (duplicate check)
             if (!$session->is_billed) {
@@ -169,7 +187,7 @@ class USSDSessionService
                 'is_billed' => true,
                 'billing_amount' => $sessionCost,
                 'billing_currency' => $business->billing_currency ?? config('app.currency', 'NGN'),
-                'billing_status' => 'simulated', // Special status for testing
+                'billing_status' => 'testing', // Special status for testing
                 'billed_at' => now(),
                 'invoice_id' => 'TEST-' . Str::random(8)
             ]);
@@ -198,6 +216,22 @@ class USSDSessionService
         $startTime = microtime(true);
         
         try {
+            // SECURITY: Validate session belongs to correct USSD
+            if (!$session->ussd || !$session->ussd->is_active) {
+                throw new \Exception('Invalid or inactive USSD service');
+            }
+            
+            // SECURITY: Rate limiting - check phone number rate limit
+            $rateLimitService = app(SessionRateLimitService::class);
+            if ($session->phone_number && !$rateLimitService->checkPhoneRateLimit($session->phone_number)) {
+                throw new \Exception('Rate limit exceeded. Please try again later.');
+            }
+            
+            // SECURITY: Rate limiting - check session rate limit
+            if ($session->session_id && !$rateLimitService->checkSessionRateLimit($session->session_id)) {
+                throw new \Exception('Session rate limit exceeded. Please start a new session.');
+            }
+            
             // Update session activity
             $session->update([
                 'last_activity' => now(),
@@ -205,7 +239,7 @@ class USSDSessionService
             ]);
 
             // Simulate billing for testing sessions (per step)
-            if ($session->ussd->environment && $session->ussd->environment->name === 'testing' && !$session->is_billed) {
+            if ($session->ussd->environment && $session->ussd->environment->name === EnvironmentType::TESTING->value && !$session->is_billed) {
                 $this->simulateBilling($session);
             }
 
@@ -227,17 +261,46 @@ class USSDSessionService
                 return $this->handleInputCollection($session, $input, $inputType, $inputPrompt);
             }
 
+            // If input is empty (first request), just show the current flow menu
+            if (empty($input) || trim($input) === '') {
+                // For dynamic flows, process the flow to get the menu
+                if ($currentFlow->flow_type === 'dynamic') {
+                    return $this->processDynamicFlow($session, $currentFlow);
+                }
+                
+                // For static flows, display the menu directly
+                // Check if this flow has ONLY input actions - if so, auto-trigger the first one
+                $options = $currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get();
+                
+                // Only auto-trigger if ALL options are input actions
+                // An action is an input action if it starts with 'input_' or is 'input_collection'
+                if ($options->count() > 0) {
+                    $allAreInputActions = $options->every(function ($option) {
+                        return str_starts_with($option->action_type, 'input_') || $option->action_type === 'input_collection';
+                    });
+                    
+                    if ($allAreInputActions) {
+                        $firstOption = $options->first();
+                        return $this->handleInputRequest($session, $firstOption);
+                    }
+                }
+                
+                // Otherwise, show the menu
+                return [
+                    'success' => true,
+                    'message' => $currentFlow->getFullDisplayText($session),
+                    'flow_title' => $currentFlow->getProcessedTitle($session),
+                    'flow_description' => $currentFlow->description,
+                    'requires_input' => true,
+                    'current_flow' => $currentFlow,
+                ];
+            }
+
             // Extract the last selection from cumulative input (e.g., "1*1*1*2" -> "2")
             // AfricasTalking sends cumulative input, but we only need the last selection
             $lastSelection = $this->extractLastSelection($input);
             
-            Log::info('Processing input', [
-                'session_id' => $session->id,
-                'raw_input' => $input,
-                'last_selection' => $lastSelection,
-                'flow_id' => $currentFlow->id,
-                'flow_type' => $currentFlow->flow_type
-            ]);
+            // Process input - only log errors if needed
 
             // Handle dynamic flow selection
             if ($currentFlow->flow_type === 'dynamic') {
@@ -251,6 +314,17 @@ class USSDSessionService
                 ->first();
 
             if (!$selectedOption) {
+                // SECURITY: Invalid input - log for security monitoring
+                // This could indicate an attack attempt (trying invalid options)
+                Log::warning('Invalid USSD option selected', [
+                    'session_id' => $session->id,
+                    'ussd_id' => $session->ussd_id,
+                    'invalid_input' => $lastSelection,
+                    'flow_id' => $currentFlow->id,
+                    'phone_number' => $session->phone_number,
+                    'ip_address' => $session->ip_address,
+                ]);
+                
                 // Invalid input - show error message
                 $errorMessage = "Invalid option. Please try again.\n\n" . $currentFlow->menu_text;
                 $this->logSessionAction($session, 'invalid_input', $lastSelection, $errorMessage, 'error');
@@ -306,9 +380,15 @@ class USSDSessionService
      */
     private function extractLastSelection(string $input): string
     {
-        if (empty($input)) {
+        // SECURITY: Sanitize and validate input
+        // Check for actual empty string, not using empty() which treats "0" as empty
+        if ($input === '' || $input === null) {
             return '';
         }
+
+        // SECURITY: Sanitize USSD selection input
+        $sanitizationService = app(SanitizationService::class);
+        $input = $sanitizationService->sanitizeInput($input, 'ussd_selection');
 
         // If input contains "*", extract the last part
         if (strpos($input, '*') !== false) {
@@ -317,7 +397,7 @@ class USSDSessionService
             return trim($lastPart);
         }
 
-        // If no "*", return the input as-is
+        // If no "*", return the sanitized input
         return trim($input);
     }
 
@@ -358,28 +438,27 @@ class USSDSessionService
             // Check if we already have cached API data for pagination
             $sessionData = $session->session_data ?? [];
             
-            Log::info('Dynamic flow detected, checking cache', [
-                'session_id' => $session->id,
-                'flow_id' => $currentFlow->id,
-                'has_cached_api_data' => isset($sessionData['cached_api_data']),
-                'has_dynamic_options' => isset($sessionData['dynamic_options']),
-                'session_data_keys' => array_keys($sessionData)
-            ]);
-            
-            if (isset($sessionData['cached_api_data']) && isset($sessionData['dynamic_options'])) {
+            // Only use cached data if it belongs to the current flow
+            $cachedFlowId = $sessionData['cached_flow_id'] ?? null;
+            if (isset($sessionData['cached_api_data']) && 
+                isset($sessionData['dynamic_options']) && 
+                $cachedFlowId === $currentFlow->id) {
                 Log::info('Using cached data for pagination', [
                     'session_id' => $session->id,
-                    'flow_id' => $currentFlow->id
+                    'flow_id' => $currentFlow->id,
+                    'cached_flow_id' => $cachedFlowId
                 ]);
                 // Use cached data for pagination - no need to make another API call
                 return $this->regenerateDynamicFlowFromCache($session, $currentFlow);
             }
             
-            Log::info('No cache found, making API call', [
+            Log::info('No cache found or cache belongs to different flow, making API call', [
                 'session_id' => $session->id,
-                'flow_id' => $currentFlow->id
+                'flow_id' => $currentFlow->id,
+                'cached_flow_id' => $cachedFlowId,
+                'cache_exists' => isset($sessionData['cached_api_data'])
             ]);
-            // First time or no cache - make API call
+            // First time, no cache, or cache belongs to different flow - make API call
             return $this->processDynamicFlow($session, $currentFlow);
         }
         
@@ -389,10 +468,35 @@ class USSDSessionService
             'flow_id' => $currentFlow->id
         ]);
         
+        // Check if this flow has ONLY input actions - if so, auto-trigger the first one
+        // This provides better UX: if all options are inputs, skip the menu and go straight to input
+        $options = $currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get();
+        
+        // Only auto-trigger if ALL options are input actions (not just one)
+        // This ensures we show menu when there's a real choice (mixed actions)
+        // An action is an input action if it starts with 'input_' or is 'input_collection'
+        if ($options->count() > 0) {
+            $allAreInputActions = $options->every(function ($option) {
+                return str_starts_with($option->action_type, 'input_') || $option->action_type === 'input_collection';
+            });
+            
+            if ($allAreInputActions) {
+                $firstOption = $options->first();
+                Log::info('Auto-triggering input collection for input-only flow', [
+                    'session_id' => $session->id,
+                    'flow_id' => $currentFlow->id,
+                    'option_id' => $firstOption->id,
+                    'action_type' => $firstOption->action_type,
+                    'total_options' => $options->count()
+                ]);
+                return $this->handleInputRequest($session, $firstOption);
+            }
+        }
+        
         return [
             'success' => true,
             'message' => $currentFlow->getFullDisplayText($session),
-            'flow_title' => $currentFlow->title,
+            'flow_title' => $currentFlow->getProcessedTitle($session),
             'flow_description' => $currentFlow->description,
             'requires_input' => true,
             'current_flow' => $currentFlow,
@@ -419,11 +523,13 @@ class USSDSessionService
         }
         
         // Store the dynamic options and cache the API data in session for pagination
+        // Key the cache by flow_id to prevent cross-flow cache contamination
         $sessionData = $session->session_data ?? [];
         $sessionData['dynamic_options'] = $result['options'] ?? [];
         $sessionData['dynamic_continuation_type'] = $result['continuation_type'] ?? 'continue';
         $sessionData['dynamic_next_flow_id'] = $result['next_flow_id'] ?? null;
         $sessionData['cached_api_data'] = $result['cached_api_data'] ?? null; // Cache the raw API data
+        $sessionData['cached_flow_id'] = $flow->id; // Store which flow this cache belongs to
         $session->update(['session_data' => $sessionData]);
         
         // Format the message with dynamic options
@@ -504,15 +610,20 @@ class USSDSessionService
         $session->update(['session_data' => $sessionData]);
         
         // Format the message with dynamic options
+        $sanitizationService = app(SanitizationService::class);
         $flowTitle = $flow->title ?? $flow->name ?? 'Menu';
+        $flowTitle = $sanitizationService->sanitizeOutput($flowTitle, 200);
+        
         $message = $flowTitle;
         if (!empty($options)) {
             $message .= "\n";
             foreach ($options as $index => $option) {
-                $message .= ($index + 1) . ". " . $option['label'] . "\n";
+                $label = $sanitizationService->sanitizeOutput($option['label'] ?? '', 100);
+                $message .= ($index + 1) . ". " . $label . "\n";
             }
         } else {
-            $message .= "\n" . ($dynamicConfig['empty_message'] ?? 'No options available');
+            $emptyMsg = $sanitizationService->sanitizeOutput($dynamicConfig['empty_message'] ?? 'No options available', 200);
+            $message .= "\n" . $emptyMsg;
         }
         
         Log::info('regenerateDynamicFlowFromCache completed successfully', [
@@ -639,19 +750,29 @@ class USSDSessionService
         
         // Store the full item data for use in subsequent flows
         if (isset($selectedOption['data'])) {
-            $sessionData['selected_item_data'] = $selectedOption['data'];
+            $itemData = $selectedOption['data'];
+            
+            // Store the full item data
+            $sessionData['selected_item_data'] = $itemData;
             $sessionData['selected_item_value'] = $selectedOption['value'];
             $sessionData['selected_item_label'] = $selectedOption['label'];
             
-            // Extract specific fields for template variables
-            $itemData = $selectedOption['data'];
-            $sessionData['selected_service'] = $itemData['name'] ?? $itemData['service'] ?? $itemData['title'] ?? $selectedOption['label'];
-            $sessionData['amount'] = $itemData['amount'] ?? $itemData['price'] ?? $itemData['cost'] ?? '0';
-            $sessionData['phone_number'] = $session->phone_number ?? 'Not provided';
+            // Dynamically extract all fields from selected_item_data to top level for easier template access
+            // This allows using {session.data.coded} instead of {session.data.selected_item_data.coded}
+            // Only extract scalar values (strings, numbers, booleans) to avoid overwriting with complex structures
+            foreach ($itemData as $key => $value) {
+                if (is_scalar($value) || is_null($value)) {
+                    // Only extract if key doesn't already exist at top level (to avoid overwriting important session data)
+                    if (!isset($sessionData[$key])) {
+                        $sessionData[$key] = $value;
+                    }
+                }
+            }
             
-            // Store additional common fields that might be useful
-            $sessionData['service_id'] = $itemData['id'] ?? $itemData['service_id'] ?? '';
-            $sessionData['service_description'] = $itemData['description'] ?? $itemData['details'] ?? '';
+            // Store phone number if not already set
+            if (!isset($sessionData['phone_number'])) {
+                $sessionData['phone_number'] = $session->phone_number ?? 'Not provided';
+            }
         }
         
         $session->update(['session_data' => $sessionData]);
@@ -681,24 +802,111 @@ class USSDSessionService
      */
     private function handleAction(USSDSession $session, USSDFlowOption $option): array
     {
-        // Check if this option should use the registered phone number
         $actionData = $option->action_data ?? [];
-        // Convert object to array if needed
         if (is_object($actionData)) {
             $actionData = (array) $actionData;
         }
-        if (isset($actionData['use_registered_phone']) && $actionData['use_registered_phone']) {
-            $sessionData = $session->session_data ?? [];
+        
+        $sessionData = $session->session_data ?? [];
+        
+        if (isset($actionData['store_data']) && is_array($actionData['store_data'])) {
+            foreach ($actionData['store_data'] as $key => $value) {
+                if (is_scalar($value) || is_null($value)) {
+                    $finalValue = $value;
+                    if (empty($value) || (is_string($value) && trim($value) === '')) {
+                        $finalValue = $option->option_text ?? '';
+                    }
+                    
+                    if (!isset($sessionData[$key])) {
+                        $sessionData[$key] = $finalValue;
+                    }
+                }
+            }
+        }
+        
+        // Automatically extract scalar fields from action_data (fallback)
+        $excludedFields = [
+            'store_data', 'use_registered_phone', 'message', 'prompt', 'error_message', 
+            'success_message', 'api_configuration_id', 'success_flow_id', 'error_flow_id',
+            'end_session_after_api', 'after_input_action', 'process_type', 'next_flow_id'
+        ];
+        
+        foreach ($actionData as $key => $value) {
+            if (in_array($key, $excludedFields) || !is_scalar($value)) {
+                continue;
+            }
+            
+            if (!isset($sessionData[$key])) {
+                $sessionData[$key] = $value;
+            }
+        }
+        
+        if (!empty($actionData['use_registered_phone'])) {
             $sessionData['recipient_phone'] = $session->phone_number;
             $sessionData['recipient_type'] = 'self';
-            $session->update(['session_data' => $sessionData]);
-            
-            Log::info('Using registered phone number for option', [
-                'session_id' => $session->id,
-                'option_value' => $option->option_value,
-                'phone_number' => $session->phone_number
-            ]);
         }
+        
+        $sessionData['selected_static_option'] = [
+            'option_text' => $option->option_text,
+            'option_value' => $option->option_value,
+            'action_type' => $option->action_type,
+            'action_data' => $actionData,
+            'next_flow_id' => $option->next_flow_id,
+        ];
+        
+        $itemData = [];
+        
+        // Add data from store_data (explicit configuration takes priority)
+        if (isset($actionData['store_data']) && is_array($actionData['store_data'])) {
+            foreach ($actionData['store_data'] as $key => $value) {
+                // If value is empty, use option_text as fallback
+                $finalValue = $value;
+                if (empty($value) || (is_string($value) && trim($value) === '')) {
+                    $finalValue = $option->option_text ?? '';
+                }
+                $itemData[$key] = $finalValue;
+            }
+        }
+        
+        // Add any other scalar fields from action_data (excluding config fields)
+        $excludedFieldsForItemData = [
+            'store_data', 'use_registered_phone', 'message', 'prompt', 'error_message', 
+            'success_message', 'api_configuration_id', 'success_flow_id', 'error_flow_id',
+            'end_session_after_api', 'after_input_action', 'process_type', 'next_flow_id'
+        ];
+        
+        foreach ($actionData as $key => $value) {
+            if (!in_array($key, $excludedFieldsForItemData) && (is_scalar($value) || is_null($value))) {
+                $itemData[$key] = $value;
+            }
+        }
+        
+        // Always store selected option in selected_item_data (like dynamic flows)
+        // This makes it available for template variables without explicit configuration
+        // Store option_text as 'selected_value' for consistent access pattern
+        if (empty($itemData)) {
+            // If no explicit store_data, at least store the option_text
+            $itemData['selected_value'] = trim($option->option_text);
+            $itemData['option_text'] = trim($option->option_text);
+            $itemData['option_value'] = $option->option_value;
+        }
+        
+        // Always set selected_item_data (consistent with dynamic flows)
+        $sessionData['selected_item_data'] = $itemData;
+        $sessionData['selected_item_value'] = $option->option_value;
+        $sessionData['selected_item_label'] = $option->option_text;
+        
+        // Extract scalar fields to top level for easier template access
+        // This allows using {session.data.field} instead of {session.data.selected_item_data.field}
+        foreach ($itemData as $key => $value) {
+            if (is_scalar($value) || is_null($value)) {
+                if (!isset($sessionData[$key])) {
+                    $sessionData[$key] = $value;
+                }
+            }
+        }
+        
+        $session->update(['session_data' => $sessionData]);
         
         switch ($option->action_type) {
             case 'navigate':
@@ -728,9 +936,6 @@ class USSDSessionService
                 
             case 'process_feedback':
                 return $this->handleProcessFeedback($session, $option);
-                
-            case 'process_survey':
-                return $this->handleProcessSurvey($session, $option);
                 
             case 'process_contact':
                 return $this->handleProcessContact($session, $option);
@@ -1031,9 +1236,14 @@ class USSDSessionService
      */
     private function replacePlaceholdersWithApiData(string $text, array $apiData): string
     {
-        return preg_replace_callback('/\{api\.([^}]+)\}/', function($matches) use ($apiData) {
+        $sanitizationService = app(SanitizationService::class);
+        
+        return preg_replace_callback('/\{api\.([^}]+)\}/', function($matches) use ($apiData, $sanitizationService) {
             $field = $matches[1];
-            return $apiData[$field] ?? '';
+            $value = $apiData[$field] ?? '';
+            // SECURITY: Sanitize API data output
+            $value = is_scalar($value) ? (string) $value : '';
+            return $sanitizationService->sanitizeOutput($value, 500);
         }, $text);
     }
 
@@ -1241,10 +1451,35 @@ class USSDSessionService
             ];
         }
 
-        // Store the collected input with the specified key
+        $sanitizationService = app(SanitizationService::class);
+        $sanitizedInput = $sanitizationService->sanitizeInput($input, $inputType);
+        
         $storeAs = $actionData['store_as'] ?? $inputType;
-        $sessionData[$storeAs] = $input;
+        $storeAs = $sanitizationService->sanitizeKey($storeAs);
+        $sessionData[$storeAs] = $sanitizedInput;
         $sessionData['collected_inputs'][$inputType] = $input;
+        
+        // Also store in selected_item_data format (like dynamic flows) for template compatibility
+        // This allows using {{selected_item_data.field_name}} in template variables
+        if (!isset($sessionData['selected_item_data'])) {
+            $sessionData['selected_item_data'] = [];
+        }
+        
+        // Store in selected_item_data using the store_as key (or input type if not specified)
+        // This provides a single, predictable location for the data
+        $sessionData['selected_item_data'][$storeAs] = $sanitizedInput;
+        
+        // Also store with the input type name for backward compatibility
+        if ($storeAs !== $inputType) {
+            $sessionData['selected_item_data'][$inputType] = $sanitizedInput;
+        }
+        
+        // Extract to top level for direct access (e.g., {amount} instead of {selected_item_data.amount})
+        // Only if the key doesn't already exist to avoid overwriting
+        if (!isset($sessionData[$storeAs])) {
+            $sessionData[$storeAs] = $sanitizedInput;
+        }
+        
         $sessionData['collecting_input'] = false;
         $sessionData['input_type'] = null;
         $sessionData['input_prompt'] = null;
@@ -1252,10 +1487,8 @@ class USSDSessionService
         
         $session->update(['session_data' => $sessionData]);
 
-        // Log the input collection
         $this->logSessionAction($session, 'input_collected', $input, "Collected $inputType: $input");
 
-        // Check if there's a next flow to navigate to or if we should end session
         $nextFlowId = $sessionData['next_flow_after_input'] ?? null;
         $endSessionAfterInput = $actionData['end_session_after_input'] ?? false;
         
@@ -1600,77 +1833,6 @@ class USSDSessionService
     }
 
     /**
-     * Handle survey processing
-     */
-    private function handleProcessSurvey(USSDSession $session, USSDFlowOption $option): array
-    {
-        $actionData = $option->action_data ?? [];
-        $requiredFields = $actionData['required_fields'] ?? [];
-        $sessionData = $session->session_data ?? [];
-        
-        // Check if all required fields are completed
-        $missingFields = [];
-        foreach ($requiredFields as $field) {
-            if (empty($sessionData[$field])) {
-                $missingFields[] = $field;
-            }
-        }
-        
-        if (!empty($missingFields)) {
-            return [
-                'success' => false,
-                'message' => $actionData['error_message'] ?? 'Please complete all survey questions first.',
-                'requires_input' => true,
-                'current_flow' => $session->currentFlow,
-            ];
-        }
-        
-        // Generate survey ID
-        $surveyId = 'SUR-' . date('Ymd') . '-' . strtoupper(substr(md5(uniqid()), 0, 6));
-        
-        // Process income range text
-        $incomeText = $this->getIncomeRangeText($sessionData['survey_income'] ?? '');
-        
-        // Generate recommendations based on profile
-        $recommendations = $this->generateRecommendations($sessionData);
-        
-        // Store survey data
-        $sessionData['survey_id'] = $surveyId;
-        $sessionData['survey_completed'] = true;
-        $sessionData['survey_timestamp'] = now()->toISOString();
-        $sessionData['survey_income_text'] = $incomeText;
-        $sessionData['recommendations'] = $recommendations;
-        
-        $session->update(['session_data' => $sessionData]);
-        
-        // Navigate to summary flow
-        if ($option->next_flow_id) {
-            $nextFlow = USSDFlow::find($option->next_flow_id);
-            if ($nextFlow) {
-                $session->update(['current_flow_id' => $nextFlow->id]);
-                
-                // Replace placeholders in menu text
-                $menuText = $this->replacePlaceholders($nextFlow->menu_text, $sessionData);
-                
-                return [
-                    'success' => true,
-                    'message' => $menuText,
-                    'requires_input' => true,
-                    'current_flow' => $nextFlow,
-                    'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
-                ];
-            }
-        }
-        
-        return [
-            'success' => true,
-            'message' => 'Survey completed successfully!',
-            'requires_input' => false,
-            'session_ended' => true,
-        ];
-    }
-
-    /**
      * Handle contact processing
      */
     private function handleProcessContact(USSDSession $session, USSDFlowOption $option): array
@@ -1738,97 +1900,19 @@ class USSDSessionService
      */
     private function replacePlaceholders(string $text, array $sessionData): string
     {
+        $sanitizationService = app(SanitizationService::class);
+        
         $replacements = [
-            '{customer_name}' => $sessionData['customer_name'] ?? 'User',
-            '{customer_email}' => $sessionData['customer_email'] ?? 'Not provided',
-            '{customer_phone}' => $sessionData['customer_phone'] ?? 'Not provided',
-            '{customer_address}' => $sessionData['customer_address'] ?? 'Not provided',
-            '{feedback_name}' => $sessionData['feedback_name'] ?? 'Anonymous',
-            '{service_rating}' => $sessionData['service_rating'] ?? '0',
-            '{feedback_comment}' => $sessionData['feedback_comment'] ?? 'No comment',
-            '{survey_age}' => $sessionData['survey_age'] ?? '0',
-            '{survey_occupation}' => $sessionData['survey_occupation'] ?? 'Not specified',
-            '{survey_city}' => $sessionData['survey_city'] ?? 'Not specified',
-            '{survey_income_text}' => $sessionData['survey_income_text'] ?? 'Not specified',
-            '{contact_name}' => $sessionData['contact_name'] ?? 'User',
-            '{contact_phone}' => $sessionData['contact_phone'] ?? 'Not provided',
-            '{contact_email}' => $sessionData['contact_email'] ?? 'Not provided',
-            '{contact_whatsapp}' => $sessionData['contact_whatsapp'] ?? 'Not provided',
             '{timestamp}' => date('YmdHis'),
-            '{recommendations}' => $sessionData['recommendations'] ?? 'No specific recommendations at this time.',
-            // Marketplace integration placeholders
-            '{phone}' => $sessionData['phone'] ?? 'Not provided',
+            '{phone}' => $sessionData['phone'] ?? ($sessionData['phone_number'] ?? 'Not provided'),
             '{amount}' => $sessionData['amount'] ?? '0',
-            '{transaction_id}' => $sessionData['transaction_id'] ?? 'N/A',
-            '{error_message}' => $sessionData['error_message'] ?? 'Unknown error',
+            '{error_message}' => $sanitizationService->sanitizeOutput($sessionData['error_message'] ?? 'Unknown error', 200),
         ];
         
-        return str_replace(array_keys($replacements), array_values($replacements), $text);
-    }
-
-    /**
-     * Get income range text from selection
-     */
-    private function getIncomeRangeText(string $incomeSelection): string
-    {
-        $incomeRanges = [
-            '1' => 'Below ₦50,000',
-            '2' => '₦50,000 - ₦100,000',
-            '3' => '₦100,000 - ₦200,000',
-            '4' => 'Above ₦200,000',
-        ];
+        $result = str_replace(array_keys($replacements), array_values($replacements), $text);
         
-        return $incomeRanges[$incomeSelection] ?? 'Not specified';
-    }
-
-    /**
-     * Generate recommendations based on survey data
-     */
-    private function generateRecommendations(array $sessionData): string
-    {
-        $age = (int)($sessionData['survey_age'] ?? 0);
-        $occupation = strtolower($sessionData['survey_occupation'] ?? '');
-        $income = $sessionData['survey_income'] ?? '';
-        
-        $recommendations = [];
-        
-        // Age-based recommendations
-        if ($age >= 18 && $age <= 25) {
-            $recommendations[] = '• Student-friendly mobile banking features';
-        } elseif ($age >= 26 && $age <= 35) {
-            $recommendations[] = '• Investment and savings products';
-        } elseif ($age >= 36 && $age <= 50) {
-            $recommendations[] = '• Family banking and insurance products';
-        } else {
-            $recommendations[] = '• Retirement planning services';
-        }
-        
-        // Occupation-based recommendations
-        if (strpos($occupation, 'student') !== false) {
-            $recommendations[] = '• Student loan and scholarship information';
-        } elseif (strpos($occupation, 'teacher') !== false || strpos($occupation, 'professor') !== false) {
-            $recommendations[] = '• Education sector banking products';
-        } elseif (strpos($occupation, 'engineer') !== false) {
-            $recommendations[] = '• Technology and innovation banking';
-        } elseif (strpos($occupation, 'doctor') !== false || strpos($occupation, 'nurse') !== false) {
-            $recommendations[] = '• Healthcare professional banking';
-        }
-        
-        // Income-based recommendations
-        if ($income === '1') {
-            $recommendations[] = '• Budget-friendly banking solutions';
-        } elseif ($income === '2') {
-            $recommendations[] = '• Savings and investment opportunities';
-        } elseif ($income === '3' || $income === '4') {
-            $recommendations[] = '• Premium banking and wealth management';
-        }
-        
-        // Default recommendation
-        if (empty($recommendations)) {
-            $recommendations[] = '• Personalized banking consultation';
-        }
-        
-        return implode("\n", $recommendations);
+        // SECURITY: Final sanitization of the entire text to ensure safety
+        return $sanitizationService->sanitizeOutput($result);
     }
 
     /**
@@ -1891,7 +1975,7 @@ class USSDSessionService
     /**
      * Find marketplace API by service type
      */
-    private function findMarketplaceApiByService(USSDSession $session): ?\App\Models\ExternalAPIConfiguration
+    private function findMarketplaceApiByService(USSDSession $session): ? ExternalAPIConfiguration
     {
         $sessionData = $session->session_data ?? [];
         $collectedInput = $sessionData['collected_input'] ?? [];
@@ -1922,12 +2006,13 @@ class USSDSessionService
         $apiName = $serviceMapping[$service] ?? $service;
         
         // Find the API configuration
-        return \App\Models\ExternalAPIConfiguration::where('name', $apiName)
+        return ExternalAPIConfiguration::where('name', $apiName)
             ->where('is_marketplace_template', true)
             ->where('is_active', true)
             ->first();
     }
     
+
     /**
      * Get currency symbol from currency code
      */

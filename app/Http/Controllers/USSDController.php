@@ -3,17 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\USSD;
-use App\Models\Business;
-use App\Http\Requests\USSD\StoreUSSDRequest;
-use App\Http\Requests\USSD\UpdateUSSDRequest;
-use App\Services\ActivityService;
-use App\Services\EnvironmentManagementService;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\USSDFlow;
+use App\Models\Environment;
+use Illuminate\Http\Request;
+use App\Enums\EnvironmentType;
 use App\Models\USSDFlowOption;
-use Illuminate\Support\Facades\Auth;
+use App\Services\ActivityService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+use App\Models\ExternalAPIConfiguration;
+use App\Http\Requests\USSD\StoreUSSDRequest;
+use App\Http\Requests\USSD\UpdateUSSDRequest;
+use App\Services\EnvironmentManagementService;
 
 class USSDController extends Controller
 {
@@ -55,11 +57,11 @@ class USSDController extends Controller
         $business = Auth::user()->primaryBusiness;
         
         // Get testing environment (default for new USSDs)
-        $testingEnvironment = \App\Models\Environment::where('name', 'testing')->first();
+        $testingEnvironment = Environment::where('name', EnvironmentType::TESTING->value)->first();
         if (!$testingEnvironment) {
             // Fallback: create testing environment if it doesn't exist
-            $testingEnvironment = \App\Models\Environment::create([
-                'name' => 'testing',
+            $testingEnvironment = Environment::create([
+                'name' => EnvironmentType::TESTING->value,
                 'label' => 'Testing',
                 'description' => 'Real API calls in test/sandbox mode',
                 'color' => 'yellow',
@@ -201,7 +203,7 @@ class USSDController extends Controller
         $ussd->ensureRootFlow();
 
         // Get marketplace APIs (templates)
-        $marketplaceApis = \App\Models\ExternalAPIConfiguration::where('category', 'marketplace')
+        $marketplaceApis = ExternalAPIConfiguration::where('category', 'marketplace')
             ->where('is_marketplace_template', true)
             ->where('is_active', true)
             ->where('is_verified', true)
@@ -210,7 +212,7 @@ class USSDController extends Controller
             ->get();
 
         // Get user's custom APIs
-        $customApis = \App\Models\ExternalAPIConfiguration::where('user_id', Auth::id())
+        $customApis = ExternalAPIConfiguration::where('user_id', Auth::id())
             ->where('category', 'custom')
             ->where('is_active', true)
             ->orderBy('created_at', 'desc')
@@ -290,6 +292,17 @@ class USSDController extends Controller
                 ], 422);
             }
 
+            // Check for duplicate flow titles within the same USSD (if title is provided)
+            if (!empty($validated['title'])) {
+                $existingFlowWithTitle = $ussd->flows()->where('title', $validated['title'])->first();
+                if ($existingFlowWithTitle) {
+                    return response()->json([
+                        'success' => false,
+                        'errors' => ['title' => 'A flow with this title already exists. Please use a unique title.']
+                    ], 422);
+                }
+            }
+
             // Create the flow
             $flow = $ussd->flows()->create([
                 'name' => $validated['name'],
@@ -355,14 +368,17 @@ class USSDController extends Controller
             'dynamic_config.next_label' => 'nullable|string|max:20',
             'dynamic_config.back_label' => 'nullable|string|max:20',
             'options' => 'array',
-            'options.*.option_text' => 'required|string|max:255|min:1',
+            'options.*.option_text' => 'nullable|string|max:255',
             'options.*.option_value' => 'required|string|max:50|min:1',
             'options.*.action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection,external_api_call',
             'options.*.action_data' => 'nullable|array',
-            'options.*.action_data.message' => 'required_if:options.*.action_type,message|string|max:500',
+            'options.*.action_data.message' => 'nullable|string|max:500',
             'options.*.action_data.prompt' => 'nullable|string|max:200',
             'options.*.action_data.error_message' => 'nullable|string|max:200',
+            'options.*.action_data.use_registered_phone' => 'nullable|boolean',
             'options.*.action_data.success_message' => 'nullable|string|max:500',
+            'options.*.action_data.store_data' => 'nullable|array',
+            'options.*.action_data.store_data.*' => 'nullable',
             'options.*.next_flow_id' => 'nullable',
         ], [
             'name.required' => 'Flow name is required.',
@@ -370,8 +386,6 @@ class USSDController extends Controller
             'name.max' => 'Flow name cannot exceed 255 characters.',
             'menu_text.max' => 'Menu text cannot exceed 1000 characters.',
             'description.max' => 'Description cannot exceed 500 characters.',
-            'options.*.option_text.required' => 'Option text is required.',
-            'options.*.option_text.min' => 'Option text must be at least 1 character.',
             'options.*.option_text.max' => 'Option text cannot exceed 255 characters.',
             'options.*.option_value.required' => 'Option value is required.',
             'options.*.option_value.min' => 'Option value must be at least 1 character.',
@@ -385,6 +399,53 @@ class USSDController extends Controller
             'options.*.next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
 
+        // Validate and auto-generate option_text
+        if (isset($validated['options'])) {
+            foreach ($validated['options'] as $index => $optionData) {
+                $actionType = $optionData['action_type'] ?? null;
+                
+                // An action is an input action if it starts with 'input_' or is 'input_collection'
+                $isInputAction = $actionType && (str_starts_with($actionType, 'input_') || $actionType === 'input_collection');
+                
+                // Validate message is required when action_type is "message"
+                if ($actionType === 'message') {
+                    $message = $optionData['action_data']['message'] ?? null;
+                    if (empty($message) || !is_string($message)) {
+                        return response()->json([
+                            'success' => false,
+                            'errors' => [
+                                "options.{$index}.action_data.message" => ['Message is required when action type is message.']
+                            ]
+                        ], 422);
+                    }
+                }
+                
+                // Validate option_text is required for non-input actions
+                if (!$isInputAction && empty($optionData['option_text'])) {
+                    return response()->json([
+                        'success' => false,
+                        'errors' => [
+                            "options.{$index}.option_text" => ['Option text is required for this action type.']
+                        ]
+                    ], 422);
+                }
+                
+                // Auto-generate option_text for input actions if empty
+                if ($isInputAction && empty($optionData['option_text'])) {
+                    $defaultTexts = [
+                        'input_phone' => 'Enter Phone Number',
+                        'input_text' => 'Enter Text',
+                        'input_number' => 'Enter Number',
+                        'input_account' => 'Enter Account Number',
+                        'input_pin' => 'Enter PIN',
+                        'input_amount' => 'Enter Amount',
+                        'input_selection' => 'Make Selection',
+                    ];
+                    $validated['options'][$index]['option_text'] = $defaultTexts[$actionType] ?? 'Continue';
+                }
+            }
+        }
+
         // Check for duplicate flow names within the same USSD (excluding current flow)
         $existingFlow = $ussd->flows()->where('name', $validated['name'])->where('id', '!=', $flow->id)->first();
         if ($existingFlow) {
@@ -392,6 +453,16 @@ class USSDController extends Controller
                 'success' => false,
                 'errors' => ['name' => 'A flow with this name already exists.']
             ], 422);
+        }
+
+        if (!empty($validated['title'])) {
+            $existingFlowWithTitle = $ussd->flows()->where('title', $validated['title'])->where('id', '!=', $flow->id)->first();
+            if ($existingFlowWithTitle) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => ['title' => 'A flow with this title already exists. Please use a unique title.']
+                ], 422);
+            }
         }
 
         // Update basic flow information
@@ -430,6 +501,11 @@ class USSDController extends Controller
                  $nextFlowId = null;
                  $actionData = $optionData['action_data'] ?? [];
                  
+                 // Ensure action_data is an array (handle null, object, etc.)
+                 if (!is_array($actionData)) {
+                     $actionData = is_object($actionData) ? (array) $actionData : [];
+                 }
+                 
                  if ($optionData['next_flow_id'] === 'end_session') {
                      // Store end_session flag in action_data instead of next_flow_id
                      $actionData['end_session_after_input'] = true;
@@ -449,8 +525,8 @@ class USSDController extends Controller
                  ]);
              }
             
-            // Note: We don't auto-generate menu_text anymore to allow custom formatting
-            // The menu_text is now managed manually by the user
+            // Auto-generate menu_text from options
+            $flow->updateMenuTextFromOptions();
         }
 
         // Reload the flow with options
@@ -510,7 +586,7 @@ class USSDController extends Controller
         }
 
         $validated = $request->validate([
-            'option_text' => 'required|string|max:255|min:1',
+            'option_text' => 'nullable|string|max:255',
             'option_value' => 'required|string|max:50|min:1',
             'action_type' => 'required|in:navigate,message,end_session,input_text,input_number,input_phone,input_account,input_pin,input_amount,input_selection',
             'action_data' => 'nullable|array',
@@ -520,8 +596,6 @@ class USSDController extends Controller
             'action_data.success_message' => 'nullable|string|max:500',
             'next_flow_id' => 'nullable',
         ], [
-            'option_text.required' => 'Option text is required.',
-            'option_text.min' => 'Option text must be at least 1 character.',
             'option_text.max' => 'Option text cannot exceed 255 characters.',
             'option_value.required' => 'Option value is required.',
             'option_value.min' => 'Option value must be at least 1 character.',
@@ -534,6 +608,29 @@ class USSDController extends Controller
             'action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'next_flow_id.exists' => 'Selected flow does not exist.',
         ]);
+
+    
+        $isInputAction = str_starts_with($validated['action_type'], 'input_') || $validated['action_type'] === 'input_collection';
+        if (!$isInputAction && empty($validated['option_text'])) {
+            return response()->json([
+                'success' => false,
+                'errors' => ['option_text' => ['Option text is required for this action type.']]
+            ], 422);
+        }
+        
+        // Auto-generate option_text for input actions if empty
+        if ($isInputAction && empty($validated['option_text'])) {
+            $defaultTexts = [
+                'input_phone' => 'Enter Phone Number',
+                'input_text' => 'Enter Text',
+                'input_number' => 'Enter Number',
+                'input_account' => 'Enter Account Number',
+                'input_pin' => 'Enter PIN',
+                'input_amount' => 'Enter Amount',
+                'input_selection' => 'Make Selection',
+            ];
+            $validated['option_text'] = $defaultTexts[$validated['action_type']] ?? 'Continue';
+        }
 
         // Validate that next_flow_id belongs to the same USSD if provided (except special values)
         if ($validated['next_flow_id'] && $validated['next_flow_id'] !== 'end_session') {
@@ -817,8 +914,9 @@ class USSDController extends Controller
             'gateway_provider' => 'required|string|in:africastalking,hubtel,twilio',
             'api_key' => 'required|string|min:10',
             'username' => 'required|string|min:3',
-            'live_ussd_code' => 'nullable|string|max:50',
-            'testing_ussd_code' => 'nullable|string|max:50',
+            'pattern' => 'required|string|max:50|unique:ussds,pattern,' . $ussd->id . ',id',
+        ], [
+            'pattern.unique' => 'This USSD code is already in use by another service. Each service must have a unique code.',
         ]);
 
         try {
@@ -841,13 +939,6 @@ class USSDController extends Controller
                 'credentials_type' => gettype($credentials),
                 'is_array' => is_array($credentials)
             ]);
-            
-            if (isset($validated['live_ussd_code'])) {
-                $ussd->live_ussd_code = $validated['live_ussd_code'];
-            }
-            if (isset($validated['testing_ussd_code'])) {
-                $ussd->testing_ussd_code = $validated['testing_ussd_code'];
-            }
             
             // Save the model
             $saved = $ussd->save();
@@ -886,9 +977,7 @@ class USSDController extends Controller
                 'ussd_id' => $ussd->id,
                 'verification' => $verification
             ]);
-            
-            // Return response with decrypted credentials for form pre-population
-            // Note: gateway_credentials will be automatically decrypted by Laravel's encrypted cast
+           
             return response()->json([
                 'success' => true,
                 'message' => 'Gateway configured successfully!',
@@ -896,8 +985,7 @@ class USSDController extends Controller
                     'id' => $ussd->id,
                     'gateway_provider' => $ussd->gateway_provider,
                     'gateway_credentials' => $savedCredentials, // Will be decrypted automatically
-                    'live_ussd_code' => $ussd->live_ussd_code,
-                    'testing_ussd_code' => $ussd->testing_ussd_code,
+                    'pattern' => $ussd->pattern,
                     'webhook_url' => $ussd->webhook_url,
                     'callback_url' => $ussd->callback_url,
                 ]

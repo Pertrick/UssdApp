@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\USSD;
 use App\Models\Business;
-use Illuminate\Support\Facades\Log;
+use App\Models\Environment;
+use App\Enums\EnvironmentType;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 
 class EnvironmentManagementService
@@ -100,11 +102,11 @@ class EnvironmentManagementService
                 'required' => false,
                 'priority' => 'medium'
             ],
-            'live_ussd_code' => [
-                'title' => 'Live USSD Code',
-                'description' => 'Configure your live USSD code',
-                'status' => !empty($ussd->live_ussd_code),
-                'details' => $ussd->live_ussd_code ? "Code: {$ussd->live_ussd_code}" : 'No live USSD code set',
+            'pattern' => [
+                'title' => 'USSD Pattern',
+                'description' => 'Configure your USSD code (pattern). Update this when moving to production.',
+                'status' => !empty($ussd->pattern),
+                'details' => $ussd->pattern ? "Code: {$ussd->pattern}" : 'No USSD pattern set',
                 'required' => true,
                 'priority' => 'high'
             ],
@@ -162,7 +164,7 @@ class EnvironmentManagementService
                 DB::commit();
                 
                 // Log the environment change
-                $this->logEnvironmentChange($ussd, 'testing', 'live', 'User initiated go live');
+                $this->logEnvironmentChange($ussd, EnvironmentType::TESTING->value, 'live', 'User initiated go live');
                 
                 // Log activity
                 ActivityService::logUSSDLive(Auth::id(), $ussd->id, $ussd->name);
@@ -171,7 +173,7 @@ class EnvironmentManagementService
                     'success' => true,
                     'message' => 'USSD is now live! Your service is available for production use.',
                     'environment' => 'live',
-                    'ussd_code' => $ussd->live_ussd_code
+                    'ussd_code' => $ussd->pattern
                 ];
             } else {
                 DB::rollBack();
@@ -213,7 +215,7 @@ class EnvironmentManagementService
                 DB::commit();
                 
                 // Log the environment change
-                $this->logEnvironmentChange($ussd, $previousEnvironment, 'testing', 'User switched to testing');
+                $this->logEnvironmentChange($ussd, $previousEnvironment, EnvironmentType::TESTING->value, 'User switched to testing');
                 
                 // Log activity
                 ActivityService::logUSSDTesting(Auth::id(), $ussd->id, $ussd->name);
@@ -221,7 +223,7 @@ class EnvironmentManagementService
                 return [
                     'success' => true,
                     'message' => 'USSD switched to testing mode. Your service is now in testing environment.',
-                    'environment' => 'testing'
+                    'environment' => EnvironmentType::TESTING->value
                 ];
             } else {
                 DB::rollBack();
@@ -295,7 +297,7 @@ class EnvironmentManagementService
      */
     private function hasTestingActivity(USSD $ussd): bool
     {
-        $testingEnv = \App\Models\Environment::where('name', 'testing')->first();
+        $testingEnv = \App\Models\Environment::where('name', EnvironmentType::TESTING->value)->first();
         return $ussd->sessions()
             ->where('environment_id', $testingEnv?->id)
             ->where('created_at', '>=', now()->subDays(7))
@@ -307,7 +309,7 @@ class EnvironmentManagementService
      */
     private function getTestingActivityDetails(USSD $ussd): string
     {
-        $testingEnv = \App\Models\Environment::where('name', 'testing')->first();
+        $testingEnv = \App\Models\Environment::where('name', EnvironmentType::TESTING->value)->first();
         $recentSessions = $ussd->sessions()
             ->where('environment_id', $testingEnv?->id)
             ->where('created_at', '>=', now()->subDays(7))
@@ -324,8 +326,8 @@ class EnvironmentManagementService
         $today = now()->startOfDay();
         
         // Get environment IDs
-        $testingEnv = \App\Models\Environment::where('name', 'testing')->first();
-        $productionEnv = \App\Models\Environment::where('name', 'production')->first();
+        $testingEnv = Environment::where('name', EnvironmentType::TESTING->value)->first();
+        $productionEnv = Environment::where('name', EnvironmentType::PRODUCTION->value)->first();
         
         return [
             'today' => [
@@ -380,8 +382,6 @@ class EnvironmentManagementService
             return false;
         }
 
-        // Check the raw attribute first to see if something exists in the database
-        // Use getRawOriginal to get the actual database value before casting
         $rawValue = $ussd->getRawOriginal('gateway_credentials') ?? null;
         
         // If raw value is null or empty, no credentials exist
@@ -435,11 +435,8 @@ class EnvironmentManagementService
         }
 
         $details = "Provider: {$ussd->gateway_provider}";
-        if (!empty($ussd->live_ussd_code)) {
-            $details .= " | Live Code: {$ussd->live_ussd_code}";
-        }
-        if (!empty($ussd->testing_ussd_code)) {
-            $details .= " | Testing Code: {$ussd->testing_ussd_code}";
+        if (!empty($ussd->pattern)) {
+            $details .= " | Pattern: {$ussd->pattern}";
         }
 
         return $details;

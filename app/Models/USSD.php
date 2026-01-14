@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EnvironmentType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,8 +31,6 @@ class USSD extends Model
         'subscription_price', // Monthly subscription price
         'webhook_url',
         'callback_url',
-        'live_ussd_code', // The actual USSD code for live environment
-        'testing_ussd_code', // USSD code for testing
         'created_at',
         'updated_at'
     ];
@@ -225,17 +224,18 @@ class USSD extends Model
     // Helper methods for environment management
     public function isLive(): bool
     {
-        return $this->environment && $this->environment->name === 'production';
+        return $this->environment && $this->environment->name === EnvironmentType::PRODUCTION->value;
     }
 
     public function isTesting(): bool
     {
-        return $this->environment && $this->environment->name === 'testing';
+        return $this->environment && $this->environment->name === EnvironmentType::TESTING->value;
     }
 
     public function getCurrentUssdCode(): ?string
     {
-        return $this->isLive() ? $this->live_ussd_code : $this->testing_ussd_code;
+        // Pattern is used for both testing and production
+        return $this->pattern;
     }
 
     public function canSwitchToLive(): bool
@@ -321,7 +321,7 @@ class USSD extends Model
         }
 
         try {
-            $productionEnvironment = Environment::where('name', 'production')->first();
+            $productionEnvironment = Environment::where('name', EnvironmentType::PRODUCTION->value)->first();
             if (!$productionEnvironment) {
                 Log::error('Production environment not found', [
                     'ussd_id' => $this->id
@@ -339,7 +339,7 @@ class USSD extends Model
                 'ussd_id' => $this->id,
                 'ussd_name' => $this->name,
                 'business_id' => $this->business_id,
-                'live_ussd_code' => $this->live_ussd_code
+                'pattern' => $this->pattern
             ]);
 
             return true;
@@ -359,7 +359,7 @@ class USSD extends Model
     public function goToTesting(): bool
     {
         try {
-            $testingEnvironment = Environment::where('name', 'testing')->first();
+            $testingEnvironment = Environment::where('name', EnvironmentType::TESTING->value)->first();
             if (!$testingEnvironment) {
                 return false;
             }

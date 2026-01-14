@@ -4,7 +4,6 @@ namespace App\Enums;
 
 enum EnvironmentType: string
 {
-    case SIMULATION = 'simulation';
     case TESTING = 'testing';
     case PRODUCTION = 'production';
 
@@ -22,7 +21,6 @@ enum EnvironmentType: string
     public function label(): string
     {
         return match($this) {
-            self::SIMULATION => 'Simulation',
             self::TESTING => 'Testing',
             self::PRODUCTION => 'Production',
         };
@@ -34,7 +32,6 @@ enum EnvironmentType: string
     public function description(): string
     {
         return match($this) {
-            self::SIMULATION => 'Mock API calls with realistic responses for testing',
             self::TESTING => 'Real API calls in test/sandbox mode for integration testing',
             self::PRODUCTION => 'Real API calls in live mode for production use',
         };
@@ -46,7 +43,6 @@ enum EnvironmentType: string
     public function color(): string
     {
         return match($this) {
-            self::SIMULATION => 'blue',
             self::TESTING => 'yellow',
             self::PRODUCTION => 'green',
         };
@@ -55,20 +51,10 @@ enum EnvironmentType: string
     /**
      * Check if environment allows real API calls
      * 
-     * NOTE: Now always returns true - all environments allow real API calls
      */
     public function allowsRealApiCalls(): bool
     {
-        // Always return true - all environments now allow real API calls
         return true;
-    }
-
-    /**
-     * Check if environment is for simulation only
-     */
-    public function isSimulation(): bool
-    {
-        return $this === self::SIMULATION;
     }
 
     /**

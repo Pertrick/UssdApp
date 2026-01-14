@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EnvironmentType;
 use App\Models\USSD;
 use App\Models\USSDSession;
 use App\Models\FlowStep;
@@ -375,23 +376,23 @@ class USSDSimulatorController extends Controller
         }
 
         // Determine which environment to check
-        $checkEnvironment = $environment ?? $ussd->environment?->name ?? 'testing';
+        $checkEnvironment = $environment ?? $ussd->environment?->name ?? EnvironmentType::TESTING->value;
         
         // Normalize environment name
         if ($checkEnvironment === 'simulation' || $checkEnvironment === 'test') {
-            $checkEnvironment = 'testing';
+            $checkEnvironment = EnvironmentType::TESTING->value;
         }
         
         // Check if USSD has a code for the specified environment
-        if ($checkEnvironment === 'production' || $checkEnvironment === 'live') {
-            // For production: need live_ussd_code or pattern
-            $hasCode = !empty($ussd->live_ussd_code) || !empty($ussd->pattern);
+        if ($checkEnvironment === EnvironmentType::PRODUCTION->value) {
+            // For production: need pattern
+            $hasCode = !empty($ussd->pattern);
             if (!$hasCode) {
                 return 'This USSD service does not have a live USSD code configured. Please configure a live USSD code before testing in production.';
             }
         } else {
-            // For testing: need testing_ussd_code or pattern
-            $hasCode = !empty($ussd->testing_ussd_code) || !empty($ussd->pattern);
+            // For testing: need pattern
+            $hasCode = !empty($ussd->pattern);
             if (!$hasCode) {
                 return 'This USSD service does not have a testing USSD code configured. Please configure a testing USSD code or pattern before testing.';
             }

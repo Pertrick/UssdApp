@@ -143,6 +143,75 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Test API Section -->
+                <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="p-6 border-b border-gray-200">
+                        <h3 class="text-lg font-medium text-gray-900">Test API Integration</h3>
+                        <p class="text-sm text-gray-500 mt-1">Test your API configuration with custom values to verify it works correctly</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="space-y-4">
+                            <!-- Test Data Inputs - Dynamically generated from request mapping -->
+                            <div v-if="testFields.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div v-for="field in testFields" :key="field.key">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {{ field.label }}
+                                        <span class="text-xs text-gray-500 ml-1">({{ field.mapping }})</span>
+                                    </label>
+                                    <input
+                                        v-model="testData[field.dataKey]"
+                                        type="text"
+                                        :placeholder="field.placeholder"
+                                        class="w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                </div>
+                            </div>
+                            <div v-else class="text-sm text-gray-500 italic">
+                                No dynamic fields found in request mapping. All values are static or no mapping configured.
+                            </div>
+
+                            <!-- Test Button -->
+                            <div class="flex items-center space-x-3">
+                                <button
+                                    @click="testApi"
+                                    :disabled="testing"
+                                    class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-700 focus:bg-indigo-700 active:bg-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150 disabled:opacity-50"
+                                >
+                                    <svg v-if="testing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    {{ testing ? 'Testing...' : 'Test API' }}
+                                </button>
+                                <span v-if="testResult" :class="testResult.success ? 'text-green-600' : 'text-red-600'" class="text-sm font-medium">
+                                    {{ testResult.success ? '✓ Test Successful' : '✗ Test Failed' }}
+                                </span>
+                            </div>
+
+                            <!-- Test Result -->
+                            <div v-if="testResult" class="mt-4 p-4 rounded" :class="testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+                                <div class="text-sm">
+                                    <p class="font-medium mb-2" :class="testResult.success ? 'text-green-900' : 'text-red-900'">
+                                        {{ testResult.message }}
+                                    </p>
+                                    <div v-if="testResult.response" class="space-y-2 text-xs">
+                                        <div>
+                                            <span class="font-medium">Status Code:</span> {{ testResult.response.status }}
+                                        </div>
+                                        <div v-if="testResult.response_time">
+                                            <span class="font-medium">Response Time:</span> {{ testResult.response_time }}ms
+                                        </div>
+                                        <div v-if="testResult.response.body" class="mt-2">
+                                            <span class="font-medium">Response Body:</span>
+                                            <pre class="mt-1 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">{{ JSON.stringify(testResult.response.body, null, 2) }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </AuthenticatedLayout>
@@ -151,6 +220,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { ref, computed, watch } from 'vue';
 
 const props = defineProps({
     apiConfig: {
@@ -175,6 +245,155 @@ const props = defineProps({
     }
 });
 
+// Parse request mapping to extract dynamic fields
+const testFields = computed(() => {
+    const mapping = props.apiConfig.request_mapping || [];
+    const fields = [];
+    
+    // Normalize mapping format (handle both [{key, value}] and {key: value})
+    const normalizedMapping = {};
+    if (Array.isArray(mapping)) {
+        mapping.forEach(item => {
+            if (item && typeof item === 'object') {
+                if (item.key && item.value) {
+                    // Array format: [{key: 'field', value: 'mapping'}]
+                    normalizedMapping[item.key] = item.value;
+                } else {
+                    // Object format: {key: value}
+                    Object.assign(normalizedMapping, item);
+                }
+            }
+        });
+    } else if (typeof mapping === 'object') {
+        Object.assign(normalizedMapping, mapping);
+    }
+    
+    // Extract fields that use template variables
+    Object.keys(normalizedMapping).forEach(apiField => {
+        const mappingValue = normalizedMapping[apiField];
+        
+        // Check if mapping value contains template variables (e.g., {session.phone_number})
+        if (typeof mappingValue === 'string' && mappingValue.includes('{')) {
+            // Extract the variable path (e.g., "session.phone_number" from "{session.phone_number}")
+            const matches = mappingValue.match(/\{([^}]+)\}/g);
+            if (matches && matches.length > 0) {
+                matches.forEach(match => {
+                    const variablePath = match.replace(/[{}]/g, '');
+                    
+                    // Determine the data key and label based on the variable path
+                    let dataKey = '';
+                    let label = apiField;
+                    let placeholder = 'Enter value';
+                    
+                    // Helper to format label
+                    const formatLabel = (name) => {
+                        const labels = {
+                            'phone_number': 'Phone Number',
+                            'phone': 'Phone Number',
+                            'amount': 'Amount',
+                            'Pin': 'PIN',
+                            'pin': 'PIN',
+                            'network': 'Network',
+                            'service': 'Service',
+                            'number': 'Number',
+                        };
+                        return labels[name] || name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' ');
+                    };
+                    
+                    // Helper to get placeholder
+                    const getPlaceholder = (name) => {
+                        const placeholders = {
+                            'phone_number': '+2348012345678',
+                            'phone': '+2348012345678',
+                            'amount': '1000',
+                            'Pin': '1234',
+                            'pin': '1234',
+                            'network': 'MTN',
+                            'service': 'data',
+                            'number': '+2348012345678',
+                        };
+                        return placeholders[name] || `Enter ${name}`;
+                    };
+                    
+                    if (variablePath === 'session.phone_number') {
+                        dataKey = 'phone_number';
+                        label = formatLabel('phone_number');
+                        placeholder = getPlaceholder('phone_number');
+                    } else if (variablePath.startsWith('session.data.selected_item_data.')) {
+                        // Extract field name from session.data.selected_item_data.field_name
+                        const fieldName = variablePath.replace('session.data.selected_item_data.', '');
+                        dataKey = fieldName;
+                        label = formatLabel(fieldName);
+                        placeholder = getPlaceholder(fieldName);
+                    } else if (variablePath.startsWith('session.data.')) {
+                        // Extract field name from session.data.field_name
+                        const fieldName = variablePath.replace('session.data.', '');
+                        dataKey = fieldName;
+                        label = formatLabel(fieldName);
+                        placeholder = getPlaceholder(fieldName);
+                    } else if (variablePath.startsWith('session.')) {
+                        // Extract field name from session.field_name
+                        const fieldName = variablePath.replace('session.', '');
+                        dataKey = fieldName;
+                        label = formatLabel(fieldName);
+                        placeholder = getPlaceholder(fieldName);
+                    } else if (variablePath.startsWith('input.')) {
+                        const fieldName = variablePath.replace('input.', '');
+                        dataKey = fieldName;
+                        label = formatLabel(fieldName);
+                        placeholder = getPlaceholder(fieldName);
+                    }
+                    
+                    // Only add if we found a valid data key and it's not already added
+                    if (dataKey && !fields.find(f => f.dataKey === dataKey)) {
+                        fields.push({
+                            key: apiField,
+                            label: label,
+                            mapping: mappingValue,
+                            dataKey: dataKey,
+                            placeholder: placeholder
+                        });
+                    }
+                });
+            }
+        }
+    });
+    
+    return fields;
+});
+
+// Initialize test data as reactive ref (editable)
+const testData = ref({});
+
+// Watch testFields and initialize testData when fields change
+watch(testFields, (fields) => {
+    const data = {};
+    fields.forEach(field => {
+        // Only set default if not already set (preserve user input)
+        if (!testData.value[field.dataKey]) {
+            // Set default values based on field type
+            if (field.dataKey === 'phone_number' || field.dataKey === 'phone') {
+                data[field.dataKey] = '+2348012345678';
+            } else if (field.dataKey === 'amount') {
+                data[field.dataKey] = '1000';
+            } else if (field.dataKey === 'network') {
+                data[field.dataKey] = 'MTN';
+            } else if (field.dataKey === 'Pin' || field.dataKey === 'pin') {
+                data[field.dataKey] = '1234';
+            } else {
+                data[field.dataKey] = '';
+            }
+        } else {
+            // Preserve existing value
+            data[field.dataKey] = testData.value[field.dataKey];
+        }
+    });
+    testData.value = data;
+}, { immediate: true });
+
+const testing = ref(false);
+const testResult = ref(null);
+
 const getAuthTypeDisplay = (authType) => {
     const authTypes = {
         'api_key': 'API Key',
@@ -184,5 +403,33 @@ const getAuthTypeDisplay = (authType) => {
         'none': 'No Authentication'
     };
     return authTypes[authType] || authType;
+};
+
+const testApi = async () => {
+    testing.value = true;
+    testResult.value = null;
+
+    try {
+        const response = await fetch(`/integration/${props.apiConfig.id}/test`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            },
+            body: JSON.stringify({
+                test_data: testData.value
+            })
+        });
+
+        const result = await response.json();
+        testResult.value = result;
+    } catch (error) {
+        testResult.value = {
+            success: false,
+            message: 'Failed to test API: ' + error.message
+        };
+    } finally {
+        testing.value = false;
+    }
 };
 </script>

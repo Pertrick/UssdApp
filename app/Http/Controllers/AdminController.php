@@ -2,22 +2,24 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Business;
-use App\Models\User;
-use App\Models\Invoice;
+use Carbon\Carbon;
 use App\Models\Role;
-use App\Models\BillingChangeRequest;
-use App\Models\USSDSession;
-use App\Models\UssdCost;
-use App\Services\GatewayCostService;
+use App\Models\User;
+use Inertia\Inertia;
 use App\Enums\UserRole;
-use App\Enums\BusinessRegistrationStatus;
+use App\Models\Invoice;
+use App\Models\Business;
+use App\Models\UssdCost;
+use App\Models\Environment;
+use App\Models\USSDSession;
 use App\Enums\BillingMethod;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
+use App\Enums\EnvironmentType;
 use Illuminate\Support\Facades\DB;
+use App\Models\BillingChangeRequest;
+use App\Services\GatewayCostService;
 use Illuminate\Support\Facades\Storage;
-use Carbon\Carbon;
+use App\Enums\BusinessRegistrationStatus;
 
 class AdminController extends Controller
 {
@@ -79,14 +81,14 @@ class AdminController extends Controller
         $gatewayCostService = app(GatewayCostService::class);
 
         // Get production/live environment IDs
-        $productionEnvironmentIds = \App\Models\Environment::whereIn('name', ['production', 'live'])
+        $productionEnvironmentIds = Environment::whereIn('name', [EnvironmentType::PRODUCTION->value, 'live'])
             ->pluck('id')
             ->toArray();
 
         // Today's stats - only production/live
         $todaySessions = USSDSession::where('is_billed', true)
-            ->where('billing_status', 'charged') // Only successfully charged sessions
-            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->where('billing_status', 'charged') 
+            ->whereIn('environment_id', $productionEnvironmentIds)
             ->whereDate('billed_at', today())
             ->get();
 
@@ -102,8 +104,8 @@ class AdminController extends Controller
 
         // This month's stats - only production/live
         $thisMonthSessions = USSDSession::where('is_billed', true)
-            ->where('billing_status', 'charged') // Only successfully charged sessions
-            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->where('billing_status', 'charged')
+            ->whereIn('environment_id', $productionEnvironmentIds)
             ->whereMonth('billed_at', now()->month)
             ->whereYear('billed_at', now()->year)
             ->get();
@@ -120,14 +122,13 @@ class AdminController extends Controller
 
         // All time stats - only production/live
         $allTimeSessions = USSDSession::where('is_billed', true)
-            ->where('billing_status', 'charged') // Only successfully charged sessions
-            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->where('billing_status', 'charged')
+            ->whereIn('environment_id', $productionEnvironmentIds)
             ->get();
 
         // Revenue is already in main currency (decimal)
         $allTimeRevenue = (float) $allTimeSessions->sum('billing_amount');
         
-        // Gateway costs are stored in smallest unit (integer), need to convert
         $allTimeGatewayCostsInSmallestUnit = (int) ($allTimeSessions->sum('gateway_cost') ?? 0);
         $allTimeGatewayCosts = $gatewayCostService->convertFromSmallestUnit($allTimeGatewayCostsInSmallestUnit, $currency);
         

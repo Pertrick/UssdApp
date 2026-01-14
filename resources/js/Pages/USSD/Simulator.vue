@@ -309,11 +309,8 @@ function handleCloseSimulation() {
 
 // Environment-related functions
 function getCurrentUssdCode() {
-  // Use the current USSD code based on environment
-  if (environment.value === 'production') {
-    return props.ussd.live_ussd_code || 'Not configured'
-  }
-  return props.ussd.testing_ussd_code || props.ussd.pattern || 'Not configured'
+  // Pattern is used for all environments (testing and production)
+  return props.ussd.pattern || 'Not configured'
 }
 
 function getEnvironmentLabel() {
@@ -601,11 +598,7 @@ const environmentStatus = computed(() => {
 const ussdCode = computed(() => {
   if (!props.ussd) return 'Not configured';
   
-  if (environment.value === 'production') {
-    return props.ussd.live_ussd_code || 'Not configured';
-  }
-  // Default to testing
-  return props.ussd.testing_ussd_code || props.ussd.pattern || 'Not configured';
+  return props.ussd.pattern || 'Not configured';
 });
 
 const resetSession = () => {

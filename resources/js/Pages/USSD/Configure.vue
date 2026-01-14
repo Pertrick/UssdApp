@@ -116,6 +116,7 @@
           :custom-apis="customApis"
           :has-unsaved-changes="hasUnsavedChanges()"
           :saving="savingFlow"
+          :errors="flowErrors"
           @update-flow="updateFlow"
           @update-dynamic-config="updateDynamicConfig"
           @update-option="updateOption"
@@ -253,6 +254,11 @@ const selectFlow = (flow) => {
     // Initialize flow_type if not set (default to static for backward compatibility)
     if (!clonedFlow.flow_type) {
         clonedFlow.flow_type = 'static'
+    }
+    
+    // Initialize title if not set (ensure it's always a string, not null)
+    if (clonedFlow.title === null || clonedFlow.title === undefined) {
+        clonedFlow.title = ''
     }
     
     // Initialize dynamic_config if not set

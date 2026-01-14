@@ -24,10 +24,10 @@
                 <div class="flex items-center space-x-2">
                   <span class="text-sm text-gray-600">USSD Environment:</span>
                   <div class="flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium"
-                       :class="ussdEnvironment === 'live' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'">
+                       :class="ussdEnvironment === 'production' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'">
                     <div class="w-2 h-2 rounded-full"
-                         :class="ussdEnvironment === 'live' ? 'bg-green-500' : 'bg-blue-500'"></div>
-                    <span>{{ ussdEnvironment === 'live' ? 'Production' : 'Testing' }}</span>
+                         :class="ussdEnvironment === 'production' ? 'bg-green-500' : 'bg-blue-500'"></div>
+                    <span>{{ ussdEnvironment === 'production' ? 'Production' : 'Testing' }}</span>
                   </div>
                 </div>
                 
@@ -56,7 +56,7 @@
                     class="border border-gray-300 rounded-md px-3 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="today">Today</option>
-                    <option value="week">This Week</option>
+                    <option value="last_month">Last Month</option>
                     <option value="month">This Month</option>
                     <option value="year">This Year</option>
                   </select>
@@ -240,9 +240,34 @@
               </table>
             </div>
 
-            <!-- Pagination -->
+            <!-- Empty State -->
             <div v-if="filteredSessions.length === 0" class="text-center py-8">
               <p class="text-gray-500">No sessions found for this period and environment.</p>
+            </div>
+
+            <!-- Pagination -->
+            <div v-if="recentSessions && recentSessions.links && recentSessions.links.length > 3" class="mt-6">
+              <div class="flex items-center justify-between">
+                <div class="text-sm text-gray-700">
+                  Showing {{ recentSessions.from || 0 }} to {{ recentSessions.to || 0 }} of {{ recentSessions.total || 0 }} results
+                </div>
+                <div class="flex space-x-2">
+                  <Link
+                    v-for="link in recentSessions.links"
+                    :key="link.label"
+                    :href="link.url"
+                    :class="[
+                      'px-3 py-2 text-sm font-medium rounded-md',
+                      link.active
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                      !link.url ? 'opacity-50 cursor-not-allowed' : ''
+                    ]"
+                  >
+                    <span v-html="link.label"></span>
+                  </Link>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -254,15 +279,15 @@
             
             <div class="space-y-4">
               <p class="text-sm text-gray-600">
-                Your USSD is currently in <strong>{{ ussdEnvironment === 'live' ? 'Production' : 'Testing' }}</strong> mode. 
+                Your USSD is currently in <strong>{{ ussdEnvironment === 'production' ? 'Production' : 'Testing' }}</strong> mode. 
                 You can view data from a different environment if needed.
               </p>
               
               <div class="space-y-3">
                 <div
-                  @click="selectDataView('live')"
+                  @click="selectDataView('production')"
                   class="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-green-300 hover:bg-green-50 transition-colors"
-                  :class="{ 'border-green-500 bg-green-50': tempModalSelection === 'live' }"
+                  :class="{ 'border-green-500 bg-green-50': tempModalSelection === 'production' }"
                 >
                   <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -275,10 +300,10 @@
                       </div>
                       <div class="ml-3">
                         <p class="text-sm font-medium text-gray-900">Production Data</p>
-                        <p class="text-sm text-gray-500">View live production billing and session data</p>
+                        <p class="text-sm text-gray-500">View production billing and session data</p>
                       </div>
                     </div>
-                    <div v-if="tempModalSelection === 'live'" class="flex-shrink-0">
+                    <div v-if="tempModalSelection === 'production'" class="flex-shrink-0">
                       <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
@@ -287,9 +312,9 @@
                 </div>
 
                 <div
-                  @click="selectDataView('simulated')"
+                  @click="selectDataView('testing')"
                   class="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-colors"
-                  :class="{ 'border-blue-500 bg-blue-50': tempModalSelection === 'simulated' }"
+                  :class="{ 'border-blue-500 bg-blue-50': tempModalSelection === 'testing' }"
                 >
                   <div class="flex items-center justify-between">
                     <div class="flex items-center">
@@ -302,10 +327,10 @@
                       </div>
                       <div class="ml-3">
                         <p class="text-sm font-medium text-gray-900">Testing Data</p>
-                        <p class="text-sm text-gray-500">View simulated testing billing and session data</p>
+                        <p class="text-sm text-gray-500">View testing billing and session data</p>
                       </div>
                     </div>
-                    <div v-if="tempModalSelection === 'simulated'" class="flex-shrink-0">
+                    <div v-if="tempModalSelection === 'testing'" class="flex-shrink-0">
                       <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
@@ -439,7 +464,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { router, usePage } from '@inertiajs/vue3'
+import { router, usePage, Link } from '@inertiajs/vue3'
 import { useToast } from 'vue-toastification'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import Modal from '@/Components/Modal.vue'
@@ -448,7 +473,7 @@ const toast = useToast()
 
 const props = defineProps({
   billingStats: Object,
-  recentSessions: Array,
+  recentSessions: Object, // Paginated data structure
   sessionPrice: Number,
   availableGateways: Object,
   billingFilter: String,
@@ -463,19 +488,19 @@ const props = defineProps({
 const defaultTodayStats = {
   sessions: 0,
   amount: 0,
-  live_sessions: 0,
-  live_amount: 0,
-  simulated_sessions: 0,
-  simulated_amount: 0,
+  production_sessions: 0,
+  production_amount: 0,
+  testing_sessions: 0,
+  testing_amount: 0,
 }
 
 const defaultPeriodStats = {
   sessions: 0,
   amount: 0,
-  live_sessions: 0,
-  live_amount: 0,
-  simulated_sessions: 0,
-  simulated_amount: 0,
+  production_sessions: 0,
+  production_amount: 0,
+  testing_sessions: 0,
+  testing_amount: 0,
 }
 
 const showAddFundsModal = ref(false)
@@ -523,12 +548,12 @@ const currentDataView = computed(() => {
   // If user has overridden the view, use that
   if (dataViewOverride.value && dataViewOverride.value !== 'default') {
     isViewingOverride.value = true
-    return dataViewOverride.value === 'live' ? 'Production Data' : 'Testing Data'
+    return dataViewOverride.value === 'production' ? 'Production Data' : 'Testing Data'
   }
   
   // Otherwise, default to USSD environment
   isViewingOverride.value = false
-  return ussdEnvironment.value === 'live' ? 'Production Data' : 'Testing Data'
+  return ussdEnvironment.value === 'production' ? 'Production Data' : 'Testing Data'
 })
 
 const currentBalance = computed(() => {
@@ -536,7 +561,7 @@ const currentBalance = computed(() => {
   const stats = props.billingStats || {}
   const accountBalance = stats.account_balance ?? 0
   const testBalance = stats.test_balance ?? 0
-  return viewMode === 'live' ? accountBalance : testBalance
+  return viewMode === 'production' ? accountBalance : testBalance
 })
 
 const currentStats = computed(() => {
@@ -545,35 +570,44 @@ const currentStats = computed(() => {
   const today = stats.today || defaultTodayStats
   const thisMonth = stats.this_month || defaultPeriodStats
   
-  if (viewMode === 'live') {
+  if (viewMode === 'production') {
     return {
       today: {
-        sessions: today.live_sessions ?? 0,
-        amount: today.live_amount ?? 0,
+        sessions: today.production_sessions ?? 0,
+        amount: today.production_amount ?? 0,
       },
       this_month: {
-        sessions: thisMonth.live_sessions ?? 0,
-        amount: thisMonth.live_amount ?? 0,
+        sessions: thisMonth.production_sessions ?? 0,
+        amount: thisMonth.production_amount ?? 0,
       }
     }
   } else {
     return {
       today: {
-        sessions: today.simulated_sessions ?? 0,
-        amount: today.simulated_amount ?? 0,
+        sessions: today.testing_sessions ?? 0,
+        amount: today.testing_amount ?? 0,
       },
       this_month: {
-        sessions: thisMonth.simulated_sessions ?? 0,
-        amount: thisMonth.simulated_amount ?? 0,
+        sessions: thisMonth.testing_sessions ?? 0,
+        amount: thisMonth.testing_amount ?? 0,
       }
     }
   }
 })
 
 // Use sessions directly from backend (already filtered)
-// No need to filter again on frontend since backend handles it
+// Handle both paginated and non-paginated data for backward compatibility
 const filteredSessions = computed(() => {
-  return props.recentSessions || []
+  if (!props.recentSessions) return []
+  // Check if it's paginated data structure
+  if (props.recentSessions.data && Array.isArray(props.recentSessions.data)) {
+    return props.recentSessions.data
+  }
+  // Fallback for non-paginated data (array)
+  if (Array.isArray(props.recentSessions)) {
+    return props.recentSessions
+  }
+  return []
 })
 
 const formatCurrency = (amount) => {
@@ -592,7 +626,7 @@ const getStatusClass = (status) => {
       return 'bg-yellow-100 text-yellow-800'
     case 'failed':
       return 'bg-red-100 text-red-800'
-    case 'simulated':
+    case 'testing':
       return 'bg-blue-100 text-blue-800'
     default:
       return 'bg-gray-100 text-gray-800'
@@ -635,7 +669,8 @@ const resetToDefaultView = () => {
   dataViewOverride.value = null
   // When resetting, don't send a filter so backend determines the default
   router.get(route('billing.dashboard'), { 
-    period: selectedPeriod.value
+    period: selectedPeriod.value,
+    page: 1 // Reset to page 1
     // Don't send billing_filter - let backend determine default
   }, {
     preserveState: false,
@@ -650,6 +685,8 @@ const loadBillingData = () => {
   if (dataViewOverride.value) {
     params.billing_filter = dataViewOverride.value
   }
+  // Reset to page 1 when filters change
+  params.page = 1
   
   router.get(route('billing.dashboard'), params, {
     preserveState: false,

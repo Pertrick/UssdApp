@@ -18,20 +18,50 @@ class USSDGatewayController extends Controller
 
     /**
      * Handle incoming USSD requests from AfricasTalking
+     * 
+     * SECURITY: This endpoint is called by AfricasTalking gateway.
+     * IP whitelisting and signature verification are implemented.
      */
     public function handleUSSD(Request $request)
     {
         try {
-            // Validate required fields
-            $request->validate([
-                'sessionId' => 'required|string',
-                'serviceCode' => 'required|string',
-                'phoneNumber' => 'required|string',
-                'text' => 'nullable|string'
+            // SECURITY: Validate webhook request (IP, signature, rate limit)
+            $webhookSecurity = app(\App\Services\WebhookSecurityService::class);
+            $validation = $webhookSecurity->validateWebhookRequest($request);
+            
+            if (!$validation['valid']) {
+                Log::warning('Webhook validation failed', [
+                    'reason' => $validation['message'],
+                    'code' => $validation['code'],
+                    'ip' => $request->ip(),
+                ]);
+                
+                return response('END Unauthorized request.', 403, [
+                    'Content-Type' => 'text/plain'
+                ]);
+            }
+            // SECURITY: Validate and sanitize input
+            $validated = $request->validate([
+                'sessionId' => 'required|string|max:255',
+                'serviceCode' => 'required|string|max:50|regex:/^[*#0-9]+$/',
+                'phoneNumber' => 'required|string|max:20|regex:/^\+?[0-9]+$/',
+                'text' => 'nullable|string|max:500'
             ]);
+            
+            // SECURITY: Use SanitizationService for consistent sanitization
+            $sanitizationService = app(\App\Services\SanitizationService::class);
+            $sessionId = $sanitizationService->sanitizeInput($validated['sessionId'], 'session_id');
+            $serviceCode = $sanitizationService->sanitizeServiceCode($validated['serviceCode']);
+            $phoneNumber = $sanitizationService->sanitizeInput($validated['phoneNumber'], 'input_phone');
+            $text = isset($validated['text']) ? $sanitizationService->sanitizeInput($validated['text'], 'ussd_selection') : '';
 
-            // Process the USSD request
-            $response = $this->africasTalkingService->processUSSDRequest($request->all());
+            // Process the USSD request with sanitized data
+            $response = $this->africasTalkingService->processUSSDRequest([
+                'sessionId' => $sessionId,
+                'serviceCode' => $serviceCode,
+                'phoneNumber' => $phoneNumber,
+                'text' => $text
+            ]);
 
             // Format response for AfricasTalking
             $responseType = $response['response'] ?? 'END';

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Inertia\Inertia;
+use App\Enums\EnvironmentType;
 use App\Models\Business;
 use App\Models\Environment;
 use App\Models\USSDSession;
@@ -32,46 +33,34 @@ class BillingController extends Controller
         $business = Auth::user()->primaryBusiness;
         $period = $request->get('period', 'month');
         
-        // Get billing filter from request
         $billingFilter = $request->get('billing_filter');
         
-        // Normalize filter value: 'testing' is an alias for 'simulated'
-        if ($billingFilter === 'testing') {
-            $billingFilter = 'simulated';
+        // Normalize legacy values
+        if ($billingFilter === 'simulated' || $billingFilter === 'live') {
+            $billingFilter = $billingFilter === 'simulated' ? 'testing' : 'production';
         }
         
         // If no filter specified, determine default based on actual billing data
         if (!$billingFilter || $billingFilter === 'all') {
-            // Check what billing statuses exist for this business
-            $liveCount = USSDSession::whereHas('ussd', function($query) use ($business) {
+            $productionCount = USSDSession::whereHas('ussd', function($query) use ($business) {
                 $query->where('business_id', $business->id);
             })
             ->where('is_billed', true)
             ->whereIn('billing_status', ['charged', 'invoiced'])
             ->count();
             
-            $simulatedCount = USSDSession::whereHas('ussd', function($query) use ($business) {
+            $testingCount = USSDSession::whereHas('ussd', function($query) use ($business) {
                 $query->where('business_id', $business->id);
             })
             ->where('is_billed', true)
-            ->where('billing_status', 'simulated')
+            ->where('billing_status', 'testing')
             ->count();
             
-            // Default to the filter with more sessions, or 'live' if equal/zero
-            $billingFilter = $liveCount >= $simulatedCount ? 'live' : 'simulated';
+            $billingFilter = $productionCount >= $testingCount ? 'production' : 'testing';
         }
         
-        $ussdEnvironment = $billingFilter === 'live' ? 'live' : 'testing';
+        $ussdEnvironment = $billingFilter === 'production' ? EnvironmentType::PRODUCTION->value : EnvironmentType::TESTING->value;
         
-        Log::info('Billing Dashboard Filter', [
-            'requested_filter' => $request->get('billing_filter'),
-            'final_filter' => $billingFilter,
-            'period' => $period,
-            'ussd_environment' => $ussdEnvironment,
-            'business_id' => $business->id,
-            'query_params' => $request->all(),
-        ]);
-
         // Get real-time billing stats
         $billingStats = $this->billingService->getRealTimeStats($business);
 
@@ -82,10 +71,10 @@ class BillingController extends Controller
         ->where('is_billed', true)
         ->with(['ussd', 'environment']);
 
-        if ($billingFilter === 'live') {
+        if ($billingFilter === 'production') {
             $sessionsQuery->whereIn('billing_status', ['charged', 'invoiced']);
-        } elseif ($billingFilter === 'simulated') {
-            $sessionsQuery->where('billing_status', 'simulated');
+        } elseif ($billingFilter === 'testing') {
+            $sessionsQuery->where('billing_status', 'testing');
         }
 
         // Apply period filter using proper datetime ranges to avoid timezone issues
@@ -94,10 +83,10 @@ class BillingController extends Controller
                 now()->startOfDay(),
                 now()->endOfDay()
             ]);
-        } elseif ($period === 'week') {
+        } elseif ($period === 'last_month') {
             $sessionsQuery->whereBetween('billed_at', [
-                now()->startOfWeek(),
-                now()->endOfWeek()
+                now()->subMonth()->startOfMonth(),
+                now()->subMonth()->endOfMonth()
             ]);
         } elseif ($period === 'month') {
             $sessionsQuery->whereBetween('billed_at', [
@@ -111,7 +100,7 @@ class BillingController extends Controller
             ]);
         }
                 
-        if (in_array($period, ['today', 'week', 'month', 'year'])) {
+        if (in_array($period, ['today', 'last_month', 'month', 'year'])) {
             $sessionsQuery->whereNotNull('billed_at');
         }
 
@@ -119,13 +108,16 @@ class BillingController extends Controller
         $queryClone = clone $sessionsQuery;
         $sql = $queryClone->toSql();
         $bindings = $queryClone->getBindings();
-        
+
+        // Get pagination page from request, default to 1
+        $page = $request->get('page', 1);
+        $perPage = $request->get('per_page', 20);
+
         $recentSessions = $sessionsQuery
         ->orderBy('billed_at', 'desc')
-        ->limit(50)
-        ->get();
+        ->paginate($perPage, ['*'], 'page', $page)
+        ->withQueryString();
         
-        // Get all unique billing statuses for this business to see what exists
         $allStatuses = USSDSession::whereHas('ussd', function($query) use ($business) {
             $query->where('business_id', $business->id);
         })
@@ -134,7 +126,6 @@ class BillingController extends Controller
         ->unique()
         ->toArray();
         
-        // Count sessions by status for debugging
         $statusCounts = USSDSession::whereHas('ussd', function($query) use ($business) {
             $query->where('business_id', $business->id);
         })
@@ -147,7 +138,10 @@ class BillingController extends Controller
         Log::info('Billing Dashboard Query Results', [
             'filter' => $billingFilter,
             'period' => $period,
-            'sessions_count' => $recentSessions->count(),
+            'page' => $page,
+            'per_page' => $perPage,
+            'total_sessions' => $recentSessions->total(),
+            'current_page_count' => $recentSessions->count(),
             'all_available_statuses' => $allStatuses,
             'status_counts' => $statusCounts,
             'returned_billing_statuses' => $recentSessions->pluck('billing_status')->unique()->toArray(),
@@ -184,9 +178,9 @@ class BillingController extends Controller
         $business = Auth::user()->primaryBusiness;
         $billingFilter = $request->get('billing_filter', 'all');
         
-        // Normalize filter value: 'testing' is an alias for 'simulated'
-        if ($billingFilter === 'testing') {
-            $billingFilter = 'simulated';
+        // Normalize legacy values
+        if ($billingFilter === 'simulated' || $billingFilter === 'live') {
+            $billingFilter = $billingFilter === 'simulated' ? 'testing' : 'production';
         }
         
         $period = $request->get('period', 'month');
@@ -200,14 +194,14 @@ class BillingController extends Controller
         ->with('ussd');
 
         // Apply billing status filter
-        if ($billingFilter === 'live') {
+        if ($billingFilter === 'production') {
             $sessionsQuery->whereIn('billing_status', ['charged', 'invoiced']);
-        } elseif ($billingFilter === 'simulated') {
-            $sessionsQuery->where('billing_status', 'simulated');
+        } elseif ($billingFilter === 'testing') {
+            $sessionsQuery->where('billing_status', 'testing');
         }
-        
+
         // Ensure billed_at is not null for period filters
-        if (in_array($period, ['today', 'week', 'month', 'year'])) {
+        if (in_array($period, ['today', 'last_month', 'month', 'year'])) {
             $sessionsQuery->whereNotNull('billed_at');
         }
 
@@ -219,10 +213,10 @@ class BillingController extends Controller
                     now()->endOfDay()
                 ]);
                 break;
-            case 'week':
+            case 'last_month':
                 $sessionsQuery->whereBetween('billed_at', [
-                    now()->startOfWeek(),
-                    now()->endOfWeek()
+                    now()->subMonth()->startOfMonth(),
+                    now()->subMonth()->endOfMonth()
                 ]);
                 break;
             case 'month':

@@ -236,14 +236,8 @@ const formatDate = (dateString) => {
 }
 
 const getCurrentUssdCode = (ussd) => {
-    // Use the current USSD code based on environment
-    if (ussd.environment?.name === 'production') {
-        return ussd.live_ussd_code || 'Not configured'
-    } else if (ussd.environment?.name === 'testing') {
-        return ussd.testing_ussd_code || 'Not configured'
-    }
-    // Fallback to testing code, then live code, then pattern, then 'Not configured'
-    return ussd.testing_ussd_code || ussd.live_ussd_code || ussd.pattern || 'Not configured'
+    // Pattern is used for all environments (testing and production)
+    return ussd.pattern || 'Not configured'
 }
 
 const toggleStatus = (ussd) => {

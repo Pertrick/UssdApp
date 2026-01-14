@@ -4,8 +4,9 @@ namespace App\Services;
 
 use App\Models\USSD;
 use App\Models\USSDSession;
-use Illuminate\Support\Facades\Http;
+use App\Enums\EnvironmentType;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class AfricasTalkingService
 {
@@ -25,10 +26,21 @@ class AfricasTalkingService
     public function processUSSDRequest(array $requestData): array
     {
         try {
-            $sessionId = $requestData['sessionId'] ?? null;
-            $serviceCode = $requestData['serviceCode'] ?? null;
-            $phoneNumber = $requestData['phoneNumber'] ?? null;
-            $text = $requestData['text'] ?? '';
+            // SECURITY: Sanitize all inputs using SanitizationService
+            $sanitizationService = app(SanitizationService::class);
+            
+            $sessionId = isset($requestData['sessionId']) 
+                ? $sanitizationService->sanitizeInput($requestData['sessionId'], 'session_id')
+                : null;
+            $serviceCode = isset($requestData['serviceCode'])
+                ? $sanitizationService->sanitizeServiceCode($requestData['serviceCode'])
+                : null;
+            $phoneNumber = isset($requestData['phoneNumber'])
+                ? $sanitizationService->sanitizeInput($requestData['phoneNumber'], 'input_phone')
+                : null;
+            $text = isset($requestData['text']) && $requestData['text'] !== ''
+                ? $sanitizationService->sanitizeInput($requestData['text'], 'ussd_selection')
+                : '';
 
             Log::info('AfricasTalking USSD Request', [
                 'sessionId' => $sessionId,
@@ -37,26 +49,22 @@ class AfricasTalkingService
                 'text' => $text
             ]);
 
-            // Find USSD by service code
             // AfricasTalking sends the actual USSD code (e.g., *384*123#)
-            // We need to check pattern, live_ussd_code, and testing_ussd_code
-            $ussd = USSD::where(function($query) use ($serviceCode) {
-                    $query->where('pattern', $serviceCode)
-                          ->orWhere('live_ussd_code', $serviceCode);
-                })
+            // We match against the pattern field which is updated when moving to production
+            $ussd = USSD::where('pattern', $serviceCode)
                 ->where('is_active', true)
+                ->whereHas('environment', function($query) {
+                    $query->where('name', EnvironmentType::PRODUCTION->value);
+                })
                 ->first();
 
             if (!$ussd) {
-                Log::warning('USSD not found for service code', [
+                // SECURITY: Log failed service code attempts (potential attack)
+                Log::warning('USSD not found for service code - potential unauthorized access attempt', [
                     'serviceCode' => $serviceCode,
-                    'available_codes' => USSD::where('is_active', true)
-                        ->select('pattern', 'live_ussd_code')
-                        ->get()
-                        ->map(fn($u) => [
-                            'pattern' => $u->pattern,
-                            'live' => $u->live_ussd_code
-                        ])
+                    'phoneNumber' => $phoneNumber,
+                    'sessionId' => $sessionId,
+                    'ip_address' => request()->ip(),
                 ]);
                 return $this->formatResponse('END', 'Invalid service code.');
             }
@@ -95,13 +103,26 @@ class AfricasTalkingService
      */
     protected function getOrCreateSession(USSD $ussd, string $sessionId, string $phoneNumber, bool $isFirstRequest = false): USSDSession
     {
-        // Try to find existing session (prevent duplicate billing)
+        // SECURITY: Validate session belongs to correct USSD if it exists
         $session = USSDSession::where('session_id', $sessionId)->first();
+        
+        if ($session) {
+            // Verify session belongs to the correct USSD
+            if ($session->ussd_id !== $ussd->id) {
+                Log::warning('Session ID mismatch - potential session hijacking attempt', [
+                    'session_id' => $sessionId,
+                    'expected_ussd_id' => $ussd->id,
+                    'actual_ussd_id' => $session->ussd_id,
+                    'phone_number' => $phoneNumber,
+                ]);
+                throw new \Exception('Invalid session');
+            }
+        }
 
         if (!$session) {
             // Create new session
             $ussdSessionService = app(USSDSessionService::class);
-            $session = $ussdSessionService->startSession($ussd, $phoneNumber, 'AfricasTalking', null, 'production');
+            $session = $ussdSessionService->startSession($ussd, $phoneNumber, 'AfricasTalking', null, EnvironmentType::PRODUCTION->value);
             
             // Update with AfricasTalking session ID
             $session->update(['session_id' => $sessionId]);
@@ -124,7 +145,7 @@ class AfricasTalkingService
                         $session->update(['status' => 'error']);
                     }
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to bill USSD session on start', [
+                    Log::error('Failed to bill USSD session on start', [
                         'session_id' => $session->id,
                         'error' => $e->getMessage(),
                     ]);
@@ -144,6 +165,19 @@ class AfricasTalkingService
     protected function formatAfricasTalkingResponse(array $response): array
     {
         $message = $response['message'] ?? 'Thank you for using our service.';
+        
+        if (isset($response['flow_title']) && !empty($response['flow_title'])) {
+            $title = trim($response['flow_title']);
+            $messageText = trim($message);
+            
+            // Only prepend if title is not already in the message
+            if (!empty($title) && !str_contains($messageText, $title)) {
+                $message = $title . "\n" . $messageText;
+            }
+        }
+
+        $sanitizationService = app(SanitizationService::class);
+        $message = $sanitizationService->sanitizeOutput($message);
         
         if ($response['session_ended'] ?? false) {
             return $this->formatResponse('END', $message);

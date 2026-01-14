@@ -353,7 +353,6 @@ class BillingService
     {
         $baseStats = [
             'billing_method' => $business->billing_method?->value ?? 'postpaid',
-            // Surface the effective billing currency to the frontend
             'currency' => $business->billing_currency ?? config('app.currency', 'NGN'),
         ];
 
@@ -377,28 +376,28 @@ class BillingService
             ])
             ->get();
 
-            // Separate live and simulated billing
-            $todayLive = $today->where('billing_status', 'charged');
-            $todaySimulated = $today->where('billing_status', 'simulated');
-            $monthLive = $thisMonth->where('billing_status', 'charged');
-            $monthSimulated = $thisMonth->where('billing_status', 'simulated');
+            // Separate production and testing billing
+            $todayProduction = $today->where('billing_status', 'charged');
+            $todayTesting = $today->where('billing_status', 'testing');
+            $monthProduction = $thisMonth->where('billing_status', 'charged');
+            $monthTesting = $thisMonth->where('billing_status', 'testing');
 
             return array_merge($baseStats, [
                 'today' => [
                     'sessions' => $today->count(),
                     'amount' => $today->sum('billing_amount'),
-                    'live_sessions' => $todayLive->count(),
-                    'live_amount' => $todayLive->sum('billing_amount'),
-                    'simulated_sessions' => $todaySimulated->count(),
-                    'simulated_amount' => $todaySimulated->sum('billing_amount')
+                    'production_sessions' => $todayProduction->count(),
+                    'production_amount' => $todayProduction->sum('billing_amount'),
+                    'testing_sessions' => $todayTesting->count(),
+                    'testing_amount' => $todayTesting->sum('billing_amount')
                 ],
                 'this_month' => [
                     'sessions' => $thisMonth->count(),
                     'amount' => $thisMonth->sum('billing_amount'),
-                    'live_sessions' => $monthLive->count(),
-                    'live_amount' => $monthLive->sum('billing_amount'),
-                    'simulated_sessions' => $monthSimulated->count(),
-                    'simulated_amount' => $monthSimulated->sum('billing_amount')
+                    'production_sessions' => $monthProduction->count(),
+                    'production_amount' => $monthProduction->sum('billing_amount'),
+                    'testing_sessions' => $monthTesting->count(),
+                    'testing_amount' => $monthTesting->sum('billing_amount')
                 ],
                 'account_balance' => $business->account_balance,
                 'test_balance' => $business->test_balance,
@@ -439,10 +438,10 @@ class BillingService
             ])
             ->get();
 
-            $todayLive = $today->where('billing_status', 'charged');
-            $todaySimulated = $today->where('billing_status', 'simulated');
-            $monthLive = $thisMonth->where('billing_status', 'charged');
-            $monthSimulated = $thisMonth->where('billing_status', 'simulated');
+            $todayProduction = $today->where('billing_status', 'charged');
+            $todayTesting = $today->where('billing_status', 'testing');
+            $monthProduction = $thisMonth->where('billing_status', 'charged');
+            $monthTesting = $thisMonth->where('billing_status', 'testing');
 
             return array_merge($baseStats, [
                 // Keep original postpaid-specific stats
@@ -458,18 +457,18 @@ class BillingService
                 'today' => [
                     'sessions' => $today->count(),
                     'amount' => $today->sum('billing_amount'),
-                    'live_sessions' => $todayLive->count(),
-                    'live_amount' => $todayLive->sum('billing_amount'),
-                    'simulated_sessions' => $todaySimulated->count(),
-                    'simulated_amount' => $todaySimulated->sum('billing_amount'),
+                    'production_sessions' => $todayProduction->count(),
+                    'production_amount' => $todayProduction->sum('billing_amount'),
+                    'testing_sessions' => $todayTesting->count(),
+                    'testing_amount' => $todayTesting->sum('billing_amount'),
                 ],
                 'this_month' => [
                     'sessions' => $thisMonth->count(),
                     'amount' => $thisMonth->sum('billing_amount'),
-                    'live_sessions' => $monthLive->count(),
-                    'live_amount' => $monthLive->sum('billing_amount'),
-                    'simulated_sessions' => $monthSimulated->count(),
-                    'simulated_amount' => $monthSimulated->sum('billing_amount'),
+                    'production_sessions' => $monthProduction->count(),
+                    'production_amount' => $monthProduction->sum('billing_amount'),
+                    'testing_sessions' => $monthTesting->count(),
+                    'testing_amount' => $monthTesting->sum('billing_amount'),
                 ],
                 'account_balance' => $business->account_balance,
                 'test_balance' => $business->test_balance,

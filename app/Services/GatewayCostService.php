@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\EnvironmentType;
 use App\Models\USSDSession;
 use App\Models\UssdCost;
 use Illuminate\Support\Facades\Log;
@@ -200,8 +201,8 @@ class GatewayCostService
         try {
             // Only record costs for production/live sessions
             // Testing sessions don't incur real gateway costs
-            $environment = $session->environment?->name ?? 'testing';
-            if ($environment !== 'production' && $environment !== 'live') {
+            $environment = $session->environment?->name ?? EnvironmentType::TESTING->value;
+            if ($environment !== EnvironmentType::PRODUCTION->value) {
                 Log::info('Skipping gateway cost recording for non-production session', [
                     'session_id' => $session->id,
                     'environment' => $environment,
