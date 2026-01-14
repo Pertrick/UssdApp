@@ -275,6 +275,28 @@ class ExternalAPIService
      */
     private function getNestedValue(array $array, string $path)
     {
+        // Split path into top-level key and nested path
+        $pathParts = explode('.', $path, 2);
+        $topLevelKey = $pathParts[0];
+        
+        // If top-level key exists in context, resolve from there first
+        if (isset($array[$topLevelKey])) {
+            if (count($pathParts) === 1) {
+                // Simple key (e.g., 'selected_item_data' without dot notation)
+                return $array[$topLevelKey];
+            }
+            
+            // Nested path (e.g., 'selected_item_data.name')
+            $nestedPath = $pathParts[1];
+            $value = data_get($array[$topLevelKey], $nestedPath, null);
+            
+            // If found in context, return it
+            if ($value !== null) {
+                return $value;
+            }
+        }
+        
+        // Fallback: Try direct navigation through the array structure
         $keys = explode('.', $path);
         $value = $array;
         

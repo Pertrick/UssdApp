@@ -652,7 +652,6 @@ const switchToTesting = async () => {
       alert(data.message || 'Failed to switch to testing mode. Please try again.')
     }
   } catch (error) {
-    console.error('Error switching to testing:', error)
     alert('An error occurred while switching to testing mode.')
   } finally {
     isLoading.value = false
@@ -685,7 +684,6 @@ const goLive = async () => {
       }
     }
   } catch (error) {
-    console.error('Error going live:', error)
     alert('An error occurred while going live.')
   } finally {
     isLoading.value = false
@@ -726,7 +724,6 @@ const saveGateway = async () => {
       alert(data.message || 'Failed to configure gateway. Please try again.')
     }
   } catch (error) {
-    console.error('Error configuring gateway:', error)
     alert('An error occurred while configuring gateway.')
   } finally {
     isSavingGateway.value = false
@@ -756,7 +753,6 @@ const saveWebhook = async () => {
       alert(data.message || 'Failed to configure webhook. Please try again.')
     }
   } catch (error) {
-    console.error('Error configuring webhook:', error)
     alert('An error occurred while configuring webhook.')
   } finally {
     isSavingWebhook.value = false

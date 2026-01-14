@@ -325,14 +325,15 @@ class USSDSessionService
                     'ip_address' => $session->ip_address,
                 ]);
                 
-                // Invalid input - show error message
-                $errorMessage = "Invalid option. Please try again.\n\n" . $currentFlow->menu_text;
+                // Invalid input - show error message with menu (use processed display text)
+                $menuText = $currentFlow->getFullDisplayText($session);
+                $errorMessage = "Invalid option. Please try again.\n\n" . $menuText;
                 $this->logSessionAction($session, 'invalid_input', $lastSelection, $errorMessage, 'error');
                 
                 return [
                     'success' => false,
                     'message' => $errorMessage,
-                    'flow_title' => $currentFlow->title,
+                    'flow_title' => null, // Don't prepend title since message already contains full menu
                     'requires_input' => true,
                     'current_flow' => $currentFlow,
                 ];
@@ -728,15 +729,28 @@ class USSDSessionService
         }
         
         if (!$selectedOption) {
-            // Invalid input - regenerate the dynamic flow display
-            $flowDisplay = $this->getCurrentFlowDisplay($session);
-            $errorMessage = "Invalid option. Please try again.\n\n" . $flowDisplay['message'];
+            // Invalid input - show error with options only (no title, following standard practice)
+            $sessionData = $session->session_data ?? [];
+            $dynamicOptions = $sessionData['dynamic_options'] ?? [];
+            
+            // Format options only (no title)
+            $optionsText = '';
+            if (!empty($dynamicOptions)) {
+                $sanitizationService = app(SanitizationService::class);
+                foreach ($dynamicOptions as $index => $option) {
+                    if ($index > 0) $optionsText .= "\n";
+                    $label = $sanitizationService->sanitizeOutput($option['label'] ?? '', 100);
+                    $optionsText .= ($index + 1) . ". " . $label;
+                }
+            }
+            
+            $errorMessage = "Invalid option. Please try again." . (!empty($optionsText) ? "\n\n" . $optionsText : '');
             $this->logSessionAction($session, 'invalid_input', $input, $errorMessage, 'error');
             
             return [
                 'success' => false,
                 'message' => $errorMessage,
-                'flow_title' => $flow->title,
+                'flow_title' => null, // Standard practice: no title on error messages
                 'requires_input' => true,
                 'current_flow' => $flow,
             ];

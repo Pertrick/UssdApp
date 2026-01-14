@@ -592,7 +592,7 @@ const deleteFlow = async () => {
             showDeleteFlowModal.value = false
         }
     } catch (error) {
-        console.error('Error deleting flow:', error)
+        // Silent fail
     } finally {
         deletingFlow.value = false
     }

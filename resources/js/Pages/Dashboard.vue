@@ -45,7 +45,6 @@ const logout = () => {
             window.location.href = route('login');
         } else {
             // Other errors - still redirect to login since logout failed
-            console.error('Logout error:', error);
             window.location.href = route('login');
         }
     });

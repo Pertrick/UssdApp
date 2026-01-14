@@ -407,8 +407,6 @@ onMounted(() => {
 });
 
 const handleSubmit = (values, { setSubmitting }) => {
-    console.log('Form submitted with values:', values);
-    
     // First save to store before server submission
     businessStore.setBusinessData({
         name: values.name,
@@ -433,12 +431,10 @@ const handleSubmit = (values, { setSubmitting }) => {
         preserveState: true,
         preserveScroll: true,
         onSuccess: () => {
-            console.log('Form submitted successfully');
             businessStore.setCurrentStep(2);
             window.location = route('business.cac-info');
         },
         onError: (errors) => {
-            console.error('Submission errors:', errors);
             setSubmitting(false);
         },
         onFinish: () => {

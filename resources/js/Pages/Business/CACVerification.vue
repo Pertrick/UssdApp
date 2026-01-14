@@ -53,10 +53,6 @@ const handleFileChange = (event) => {
 };
 
 const handleSubmit = (values, actions) => {
-    console.log('CAC form submitted with values:', values);
-    console.log('Form object:', form);
-    console.log('Form cacDocument:', form.cacDocument);
-    
     // Set loading state
     isLoading.value = true;
     
@@ -68,14 +64,6 @@ const handleSubmit = (values, actions) => {
     
     if (form.cacDocument) {
         formData.append('cacDocument', form.cacDocument);
-        console.log('File appended to FormData:', form.cacDocument.name);
-    } else {
-        console.log('No file found in form.cacDocument');
-    }
-
-    // Log FormData contents
-    for (let [key, value] of formData.entries()) {
-        console.log('FormData entry:', key, value);
     }
 
     // Use axios for file upload instead of Inertia
@@ -86,7 +74,6 @@ const handleSubmit = (values, actions) => {
         }
     })
     .then(response => {
-        console.log('CAC submission successful:', response.data);
         const data = response.data.data;
         businessStore.setCacData({
             cacNumber: values.cacNumber,
@@ -98,10 +85,7 @@ const handleSubmit = (values, actions) => {
         window.location = route('business.director-info');
     })
     .catch(error => {
-        console.error('CAC submission error:', error);
-        console.error('Error response:', error.response);
         if (error.response && error.response.data.errors) {
-            console.error('Validation errors:', error.response.data.errors);
             actions.setErrors(error.response.data.errors);
         } else {
             actions.setErrors({ general: 'An error occurred. Please try again.' });

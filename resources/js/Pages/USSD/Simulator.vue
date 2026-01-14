@@ -354,8 +354,6 @@ async function startSession() {
       body: JSON.stringify({ phone_number: phoneNumber.value, environment: environment.value }),
     });
     
-    console.log('Response status:', res.status);
-    
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ error: `Server error: ${res.status}` }));
       const errorMsg = errorData.error || errorData.message || `Server error: ${res.status}`;
@@ -372,7 +370,6 @@ async function startSession() {
     }
     
     const data = await res.json();
-    console.log('Response data:', data);
     
     if (data.success) {
       sessionStarted.value = true;
@@ -395,7 +392,6 @@ async function startSession() {
       toast.error(errorMsg);
     }
   } catch (e) {
-    console.error('Error:', e);
     const errorMsg = 'Network error. Please check your connection.';
     errorMessage.value = errorMsg;
     toast.error(errorMsg);
@@ -420,7 +416,6 @@ async function sendInput() {
   }
   
   const csrfToken = getCsrfToken();
-  console.log('CSRF Token for input:', csrfToken ? 'Present' : 'Missing');
   
   try {
     const res = await fetch(route('ussd.simulator.input', { ussd: props.ussd.id }), {
@@ -434,17 +429,13 @@ async function sendInput() {
       body: JSON.stringify({ session_id: sessionId.value, input: userInput.value, environment: environment.value }),
     });
     
-    console.log('Input response status:', res.status);
-    
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('Input error response:', errorText);
       errorMessage.value = `Server error: ${res.status}`;
       return;
     }
     
     const data = await res.json();
-    console.log('Input response data:', data);
     
     if (data.success) {
       menuText.value = data.message;

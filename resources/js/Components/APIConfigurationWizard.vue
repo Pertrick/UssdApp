@@ -479,8 +479,6 @@ const testApiConnection = async () => {
     }
 
   } catch (error) {
-    console.error('API Test Error:', error)
-
     // Enhanced error message with more details
     let errorMessage = 'API connection failed.'
     let errorDetails = error.message
@@ -561,10 +559,8 @@ API Configuration:
 
   try {
     await navigator.clipboard.writeText(errorText)
-    // You could add a toast notification here if you have one
-    console.log('Error details copied to clipboard')
   } catch (err) {
-    console.error('Failed to copy error details:', err)
+    // Silent fail
   }
 }
 
@@ -575,10 +571,8 @@ const copyResponseToClipboard = async () => {
   
   try {
     await navigator.clipboard.writeText(responseText)
-    // You could add a toast notification here if you have one
-    console.log('Response copied to clipboard')
   } catch (err) {
-    console.error('Failed to copy response:', err)
+    // Silent fail
   }
 }
 

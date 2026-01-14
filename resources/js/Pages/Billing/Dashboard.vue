@@ -745,7 +745,6 @@ const processPayment = async () => {
       paymentStep.value = 2
     }
   } catch (error) {
-    console.error('Payment failed:', error)
     alert('Payment failed. Please try again.')
     paymentStep.value = 2
   }
@@ -765,7 +764,6 @@ const addTestFunds = async () => {
       alert('Failed to add test funds. Please try again.')
     }
   } catch (error) {
-    console.error('Failed to add test funds:', error)
     alert('Failed to add test funds. Please try again.')
   }
 }

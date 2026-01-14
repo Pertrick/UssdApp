@@ -54,8 +54,6 @@ const handleFileChange = (event) => {
 };
 
 const handleSubmit = (values, actions) => {
-    console.log('Director form submitted with values:', values);
-    
     // Create FormData for file upload
     const formData = new FormData();
     formData.append('directorName', values.directorName);
@@ -67,14 +65,6 @@ const handleSubmit = (values, actions) => {
     
     if (form.idDocument) {
         formData.append('idDocument', form.idDocument);
-        console.log('File appended to FormData:', form.idDocument.name);
-    } else {
-        console.log('No file found in form.idDocument');
-    }
-
-    // Log FormData contents
-    for (let [key, value] of formData.entries()) {
-        console.log('FormData entry:', key, value);
     }
 
     // Use axios for file upload instead of Inertia
@@ -85,15 +75,11 @@ const handleSubmit = (values, actions) => {
         }
     })
     .then(response => {
-        console.log('Director submission successful:', response.data);
         businessStore.clearRegistrationData(); // Clear all stored data
         window.location = route('dashboard');
     })
     .catch(error => {
-        console.error('Director submission error:', error);
-        console.error('Error response:', error.response);
         if (error.response && error.response.data.errors) {
-            console.error('Validation errors:', error.response.data.errors);
             actions.setErrors(error.response.data.errors);
         } else {
             actions.setErrors({ general: 'An error occurred. Please try again.' });

@@ -33,7 +33,7 @@ export const csrfToken = {
                 }
             }
         } catch (error) {
-            console.error('Failed to refresh CSRF token:', error);
+            // Silent fail
         }
         return null;
     },

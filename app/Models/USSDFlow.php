@@ -165,8 +165,25 @@ class USSDFlow extends Model
      */
     private function getNestedValueFromContext(string $path, array $context, array $sessionData)
     {
-        if (str_starts_with($path, 'session.')) {
-            $remainingPath = substr($path, 8);
+
+        $pathParts = explode('.', $path, 2);
+        $topLevelKey = $pathParts[0];
+        
+        if (isset($context[$topLevelKey])) {
+            if (count($pathParts) === 1) {
+                return is_scalar($context[$topLevelKey]) ? (string) $context[$topLevelKey] : '';
+            }
+            
+            $nestedPath = $pathParts[1];
+            $value = data_get($context[$topLevelKey], $nestedPath, null);
+            
+            if ($value !== null) {
+                return is_scalar($value) ? (string) $value : '';
+            }
+        }
+        
+        if ($topLevelKey === 'session') {
+            $remainingPath = $pathParts[1] ?? '';
 
             if ($remainingPath === 'phone_number') {
                 if (isset($sessionData['recipient_type']) && $sessionData['recipient_type'] === 'self') {
@@ -192,16 +209,19 @@ class USSDFlow extends Model
             }
             
             if (str_starts_with($remainingPath, 'data.')) {
-                $dataPath = substr($remainingPath, 5); // Remove 'data.' prefix
+                $dataPath = substr($remainingPath, 5);
                 return data_get($sessionData, $dataPath, '');
             }
             
-            // Handle other session properties
             return data_get($context['session'], $remainingPath, '');
         }
         
-        // Handle direct session data access with dot notation (e.g., selected_item_data.coded)
-        return data_get($sessionData, $path, '');
+        $value = data_get($sessionData, $path, null);
+        if ($value !== null) {
+            return is_scalar($value) ? (string) $value : '';
+        }
+        
+        return '';
     }
 
     /**
