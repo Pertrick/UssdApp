@@ -310,16 +310,10 @@ class USSDSessionService
             
             // Check if retry limit exceeded
             if ($maxRetries > 0 && $retryCount >= $maxRetries) {
-                $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
-                $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, $maxRetryMessage, 'error');
+                $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, 'Maximum retry attempts exceeded', 'error');
                 
-                $this->completeSession($session);
-                return [
-                    'success' => false,
-                    'message' => $maxRetryMessage,
-                    'requires_input' => false,
-                    'session_ended' => true,
-                ];
+                // End session gracefully with friendly message (like exit option)
+                return $this->handleEndSession($session, null, 'Thank you for using our service.');
             }
             
             // Process input - only log errors if needed
@@ -383,16 +377,10 @@ class USSDSessionService
                 // Check retry limit for invalid input
                 $currentRetryCount = $sessionData['input_retries'][$retryKey] ?? 0;
                 if ($maxRetries > 0 && $currentRetryCount >= $maxRetries) {
-                    $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
-                    $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, $maxRetryMessage, 'error');
+                    $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, 'Maximum retry attempts exceeded', 'error');
                     
-                    $this->completeSession($session);
-                    return [
-                        'success' => false,
-                        'message' => $maxRetryMessage,
-                        'requires_input' => false,
-                        'session_ended' => true,
-                    ];
+                    // End session gracefully with friendly message (like exit option)
+                    return $this->handleEndSession($session, null, 'Thank you for using our service.');
                 }
                 
                 // SECURITY: Invalid input - log for security monitoring
@@ -831,16 +819,10 @@ class USSDSessionService
             
             // Check if retry limit exceeded
             if ($maxRetries > 0 && $currentRetryCount >= $maxRetries) {
-                $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
-                $this->logSessionAction($session, 'max_retries_exceeded', $input, $maxRetryMessage, 'error');
+                $this->logSessionAction($session, 'max_retries_exceeded', $input, 'Maximum retry attempts exceeded', 'error');
                 
-                $this->completeSession($session);
-                return [
-                    'success' => false,
-                    'message' => $maxRetryMessage,
-                    'requires_input' => false,
-                    'session_ended' => true,
-                ];
+                // End session gracefully with friendly message (like exit option)
+                return $this->handleEndSession($session, null, 'Thank you for using our service.');
             }
             
             $session->update(['session_data' => $sessionData]);
@@ -1164,6 +1146,11 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         }
         $message = $customMessage ?? $actionData['message'] ?? 'Thank you for using our service.';
         
+        // Append "Session Ended" if not already in the message
+        if (stripos($message, 'Session Ended') === false) {
+            $message .= "\n\nSession Ended";
+        }
+        
         $this->completeSession($session);
         
         return [
@@ -1195,7 +1182,7 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         
         try {
             // Get API configuration
-            $apiConfig = \App\Models\ExternalAPIConfiguration::find($apiConfigId);
+            $apiConfig = ExternalAPIConfiguration::find($apiConfigId);
             
             if (!$apiConfig || !$apiConfig->isValid()) {
                 // If no specific API config found, try to find a marketplace API based on service
@@ -1381,16 +1368,10 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         
         // Check if retry limit exceeded for this API call
         if ($maxRetries > 0 && $retryCount >= $maxRetries) {
-            $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
-            $this->logSessionAction($session, 'max_retries_exceeded', $option->option_value ?? 'api_call', $maxRetryMessage, 'error');
+            $this->logSessionAction($session, 'max_retries_exceeded', $option->option_value ?? 'api_call', 'Maximum retry attempts exceeded', 'error');
             
-            $this->completeSession($session);
-            return [
-                'success' => false,
-                'message' => $maxRetryMessage,
-                'requires_input' => false,
-                'session_ended' => true,
-            ];
+            // End session gracefully with friendly message (like exit option)
+            return $this->handleEndSession($session, null, 'Thank you for using our service.');
         }
         
         // Increment retry count for this API call
