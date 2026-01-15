@@ -69,8 +69,8 @@ class ExternalAPIService
             
             $this->logApiCall($apiConfig, $session, $requestData ?? [], $response, $responseTime, false, $errorMessage);
             
-            // Return error response
-            return $this->handleApiError($apiConfig, $e);
+            // Return error response with response data for error message extraction
+            return $this->handleApiError($apiConfig, $e, $response);
         }
     }
 
@@ -783,7 +783,6 @@ class ExternalAPIService
         $responseMapping = $apiConfig->getResponseMapping();
         $successCriteria = $apiConfig->getSuccessCriteria();
         
-        // Check if response meets success criteria
         $isSuccess = $this->evaluateSuccessCriteria($successCriteria, $response);
         
         if (!$isSuccess) {
@@ -816,7 +815,6 @@ class ExternalAPIService
     private function evaluateSuccessCriteria(array $criteria, array $response): bool
     {
         if (empty($criteria)) {
-            // Default success criteria
             return $response['successful'] && $response['status'] >= 200 && $response['status'] < 300;
         }
         
@@ -876,18 +874,76 @@ class ExternalAPIService
 
     /**
      * Handle API errors
+     * Extracts user-friendly error messages from API responses if available
      */
-    private function handleApiError(ExternalAPIConfiguration $apiConfig, \Exception $exception): array
+    private function handleApiError(ExternalAPIConfiguration $apiConfig, \Exception $exception, ?array $response = null): array
     {
         $errorHandling = $apiConfig->getErrorHandling();
         $fallbackMessage = $errorHandling['fallback_message'] ?? 'Service temporarily unavailable. Please try again later.';
         
+        // Try to extract user-friendly error message from API response
+        $extractedErrorMessage = null;
+        if ($response && isset($response['body'])) {
+            $extractedErrorMessage = $this->extractErrorMessageFromResponse($apiConfig, $response['body']);
+        }
+        
+        $userFriendlyMessage = $extractedErrorMessage ?? $fallbackMessage;
+        
         return [
             'success' => false,
             'error' => $exception->getMessage(),
-            'message' => $fallbackMessage,
-            'data' => [],
+            'message' => $userFriendlyMessage,
+            'api_error_message' => $extractedErrorMessage,
+            'data' => $response['body'] ?? [],
         ];
+    }
+    
+    /**
+     * Extract user-friendly error message from API response
+     * Supports configuration of error message paths in error_handling.error_message_path
+     */
+    private function extractErrorMessageFromResponse(ExternalAPIConfiguration $apiConfig, $responseBody): ?string
+    {
+        $errorHandling = $apiConfig->getErrorHandling();
+        $errorMessagePath = $errorHandling['error_message_path'] ?? null;
+        
+        if (!$errorMessagePath) {
+            $commonPaths = ['message', 'error', 'error_message', 'msg', 'description', 'error.description', 'error.message'];
+            foreach ($commonPaths as $path) {
+                $value = $this->getNestedValue($responseBody, $path);
+                if ($value && is_string($value) && strlen($value) > 0) {
+                    return $this->sanitizeErrorMessage($value);
+                }
+            }
+            return null;
+        }
+        
+        $value = $this->getNestedValue($responseBody, $errorMessagePath);
+        if ($value && is_string($value) && strlen($value) > 0) {
+            return $this->sanitizeErrorMessage($value);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Sanitize error message for user display
+     * Removes technical details and limits length for USSD
+     */
+    private function sanitizeErrorMessage(string $message): string
+    {
+        // Remove common technical prefixes/suffixes
+        $message = preg_replace('/^(Error|Exception|Warning):\s*/i', '', $message);
+        $message = preg_replace('/\s*\(HTTP\s+\d+\)\s*$/i', '', $message);
+        $message = preg_replace('/\s*\[.*?\]\s*/', '', $message); // Remove [bracketed] technical info
+        
+        // Limit length for USSD (max 1820 chars, but error messages should be shorter)
+        $maxLength = 200;
+        if (strlen($message) > $maxLength) {
+            $message = substr($message, 0, $maxLength - 3) . '...';
+        }
+        
+        return trim($message);
     }
 
     /**

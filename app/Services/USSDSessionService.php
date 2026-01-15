@@ -300,11 +300,70 @@ class USSDSessionService
             // AfricasTalking sends cumulative input, but we only need the last selection
             $lastSelection = $this->extractLastSelection($input);
             
+            // Get session data and check retry limits
+            $sessionData = $session->session_data ?? [];
+            $maxRetries = config('ussd.max_input_retries', 3);
+            
+            // Track retry attempts per input (keyed by flow_id and input value)
+            $retryKey = $currentFlow->id . '_' . $lastSelection;
+            $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+            
+            // Check if retry limit exceeded
+            if ($maxRetries > 0 && $retryCount >= $maxRetries) {
+                $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
+                $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, $maxRetryMessage, 'error');
+                
+                $this->completeSession($session);
+                return [
+                    'success' => false,
+                    'message' => $maxRetryMessage,
+                    'requires_input' => false,
+                    'session_ended' => true,
+                ];
+            }
+            
             // Process input - only log errors if needed
 
             // Handle dynamic flow selection
             if ($currentFlow->flow_type === 'dynamic') {
                 return $this->handleDynamicFlowSelection($session, $lastSelection, $currentFlow);
+            }
+            
+            // Check if we're in an error flow state and user wants to retry
+            $lastApiError = $sessionData['last_api_error'] ?? null;
+            $inErrorFlow = $sessionData['in_error_flow'] ?? false;
+            
+            // If in error flow and user selects the same option that failed, retry it
+            if ($inErrorFlow && $lastApiError && $lastApiError['option_value'] === $lastSelection) {
+                // Increment retry count
+                if (!isset($sessionData['input_retries'])) {
+                    $sessionData['input_retries'] = [];
+                }
+                $sessionData['input_retries'][$retryKey] = ($sessionData['input_retries'][$retryKey] ?? 0) + 1;
+                $session->update(['session_data' => $sessionData]);
+                
+                // Restore original flow and retry the API call
+                $originalFlowId = $lastApiError['flow_id'] ?? null;
+                $originalOptionId = $lastApiError['option_id'] ?? null;
+                
+                if ($originalFlowId && $originalOptionId) {
+                    $originalFlow = USSDFlow::find($originalFlowId);
+                    $originalOption = USSDFlowOption::find($originalOptionId);
+                    
+                    if ($originalFlow && $originalOption && $originalFlow->is_active && $originalOption->is_active) {
+                        // Clear error state
+                        unset($sessionData['in_error_flow']);
+                        unset($sessionData['error_flow_id']);
+                        $session->update([
+                            'current_flow_id' => $originalFlowId,
+                            'session_data' => $sessionData
+                        ]);
+                        
+                        // Retry the API call
+                        $this->logSessionAction($session, 'api_retry', $lastSelection, "Retrying failed API call (attempt " . ($retryCount + 1) . ")", 'info');
+                        return $this->handleAction($session, $originalOption);
+                    }
+                }
             }
             
             // Find the option that matches user input (static flows)
@@ -314,6 +373,28 @@ class USSDSessionService
                 ->first();
 
             if (!$selectedOption) {
+                // Increment retry count for invalid input
+                if (!isset($sessionData['input_retries'])) {
+                    $sessionData['input_retries'] = [];
+                }
+                $sessionData['input_retries'][$retryKey] = ($sessionData['input_retries'][$retryKey] ?? 0) + 1;
+                $session->update(['session_data' => $sessionData]);
+                
+                // Check retry limit for invalid input
+                $currentRetryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+                if ($maxRetries > 0 && $currentRetryCount >= $maxRetries) {
+                    $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
+                    $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, $maxRetryMessage, 'error');
+                    
+                    $this->completeSession($session);
+                    return [
+                        'success' => false,
+                        'message' => $maxRetryMessage,
+                        'requires_input' => false,
+                        'session_ended' => true,
+                    ];
+                }
+                
                 // SECURITY: Invalid input - log for security monitoring
                 // This could indicate an attack attempt (trying invalid options)
                 Log::warning('Invalid USSD option selected', [
@@ -323,6 +404,7 @@ class USSDSessionService
                     'flow_id' => $currentFlow->id,
                     'phone_number' => $session->phone_number,
                     'ip_address' => $session->ip_address,
+                    'retry_count' => $currentRetryCount,
                 ]);
                 
                 // Invalid input - show error message with menu (use processed display text)
@@ -337,6 +419,12 @@ class USSDSessionService
                     'requires_input' => true,
                     'current_flow' => $currentFlow,
                 ];
+            }
+
+            // Reset retry count on successful input selection
+            if (isset($sessionData['input_retries'][$retryKey])) {
+                unset($sessionData['input_retries'][$retryKey]);
+                $session->update(['session_data' => $sessionData]);
             }
 
             // Log the user input
@@ -653,6 +741,11 @@ class USSDSessionService
         $sessionData = $session->session_data ?? [];
         $dynamicOptions = $sessionData['dynamic_options'] ?? [];
         
+        // Track retry attempts for dynamic flow selections
+        $maxRetries = config('ussd.max_input_retries', 3);
+        $retryKey = $flow->id . '_' . $input;
+        $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+        
         // Find the selected option from dynamic options
         $selectedOption = null;
         $inputNumber = (int) $input;
@@ -729,8 +822,29 @@ class USSDSessionService
         }
         
         if (!$selectedOption) {
-            // Invalid input - show error with options only (no title, following standard practice)
-            $sessionData = $session->session_data ?? [];
+            // Increment retry count for invalid dynamic flow selection
+            if (!isset($sessionData['input_retries'])) {
+                $sessionData['input_retries'] = [];
+            }
+            $sessionData['input_retries'][$retryKey] = ($sessionData['input_retries'][$retryKey] ?? 0) + 1;
+            $currentRetryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+            
+            // Check if retry limit exceeded
+            if ($maxRetries > 0 && $currentRetryCount >= $maxRetries) {
+                $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
+                $this->logSessionAction($session, 'max_retries_exceeded', $input, $maxRetryMessage, 'error');
+                
+                $this->completeSession($session);
+                return [
+                    'success' => false,
+                    'message' => $maxRetryMessage,
+                    'requires_input' => false,
+                    'session_ended' => true,
+                ];
+            }
+            
+            $session->update(['session_data' => $sessionData]);
+            
             $dynamicOptions = $sessionData['dynamic_options'] ?? [];
             
             // Format options only (no title)
@@ -754,6 +868,12 @@ class USSDSessionService
                 'requires_input' => true,
                 'current_flow' => $flow,
             ];
+        }
+        
+        // Reset retry count on successful dynamic flow selection
+        if (isset($sessionData['input_retries'][$retryKey])) {
+            unset($sessionData['input_retries'][$retryKey]);
+            $session->update(['session_data' => $sessionData]);
         }
         
         // Log the user input
@@ -962,7 +1082,7 @@ class USSDSessionService
     /**
      * Handle navigation to next flow
      */
-    private function handleNavigation(USSDSession $session, ?USSDFlowOption $option = null, ?USSDFlow $nextFlow = null): array
+private function handleNavigation(USSDSession $session, ?USSDFlowOption $option = null, ?USSDFlow $nextFlow = null): array
     {
         // If nextFlow is provided directly (for dynamic flows), use it
         if ($nextFlow) {
@@ -982,6 +1102,20 @@ class USSDSessionService
 
         if (!$targetFlow->is_active) {
             throw new \Exception('Target flow is inactive');
+        }
+
+        // Check if we're navigating back to the original flow after an API error
+        // If so, and the user selects the same option that failed, automatically retry
+        $sessionData = $session->session_data ?? [];
+        $lastApiError = $sessionData['last_api_error'] ?? null;
+        $inErrorFlow = $sessionData['in_error_flow'] ?? false;
+        
+        if ($inErrorFlow && $lastApiError && $targetFlow->id == $lastApiError['flow_id']) {
+            // User navigated back to the original flow from error flow
+            // Clear error state
+            unset($sessionData['in_error_flow']);
+            unset($sessionData['error_flow_id']);
+            $session->update(['session_data' => $sessionData]);
         }
 
         // Update session to new flow
@@ -1081,7 +1215,9 @@ class USSDSessionService
             $result = $externalApiService->executeApiCall($apiConfig, $session, $userInput);
             
             if (!$result['success']) {
-                throw new \Exception($result['message'] ?? 'API call failed');
+                // Pass the result array to error handler instead of throwing exception
+                // This allows access to extracted error messages and API response data
+                return $this->handleApiCallError($session, $option, null, $result);
             }
             
             // Handle success response
@@ -1091,7 +1227,7 @@ class USSDSessionService
             // Log the error
             $this->logSessionAction($session, 'api_call_error', null, $e->getMessage(), 'error');
             
-            // Handle error response
+            // Handle error response (legacy exception-based error handling)
             return $this->handleApiCallError($session, $option, $e);
         }
     }
@@ -1137,6 +1273,23 @@ class USSDSessionService
         // Store API result in session data
         $sessionData = $session->session_data ?? [];
         $sessionData['last_api_result'] = $result;
+        
+        // Reset retry count on successful API call
+        $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
+        if (isset($sessionData['input_retries'][$retryKey])) {
+            unset($sessionData['input_retries'][$retryKey]);
+        }
+        // Also clear last_api_error on success
+        if (isset($sessionData['last_api_error'])) {
+            unset($sessionData['last_api_error']);
+        }
+        if (isset($sessionData['in_error_flow'])) {
+            unset($sessionData['in_error_flow']);
+        }
+        if (isset($sessionData['error_flow_id'])) {
+            unset($sessionData['error_flow_id']);
+        }
+        
         $session->update(['session_data' => $sessionData]);
         
         // Log successful API call
@@ -1188,27 +1341,100 @@ class USSDSessionService
 
     /**
      * Handle API call error
+     * Supports error message templates with placeholders and extracted API error messages
+     * 
+     * @param USSDSession $session
+     * @param USSDFlowOption $option
+     * @param \Exception|null $exception Legacy exception parameter (for backward compatibility)
+     * @param array|null $apiResult API result array with error information (preferred)
+     * @return array
      */
-    private function handleApiCallError(USSDSession $session, USSDFlowOption $option, \Exception $exception): array
+    private function handleApiCallError(USSDSession $session, USSDFlowOption $option, ?\Exception $exception = null, ?array $apiResult = null): array
     {
         $apiData = $option->action_data ?? [];
         if (is_object($apiData)) {
             $apiData = (array) $apiData;
         }
-        $errorMessage = $apiData['error_message'] ?? 'Service temporarily unavailable. Please try again later.';
         
-        // Store the actual error message in session data for placeholder replacement
+        // Get error message template from flow option
+        $errorMessageTemplate = $apiData['error_message'] ?? 'Service temporarily unavailable. Please try again later.';
+        
+        // Extract error information from API result if available
+        $apiErrorMessage = null;
+        $apiErrorData = [];
+        if ($apiResult) {
+            $apiErrorMessage = $apiResult['api_error_message'] ?? $apiResult['message'] ?? null;
+            $apiErrorData = $apiResult['data'] ?? [];
+        }
+        
+        $technicalError = $exception ? $exception->getMessage() : ($apiResult['error'] ?? 'API call failed');
+        
         $sessionData = $session->session_data ?? [];
-        $sessionData['error_message'] = $exception->getMessage() ?: $errorMessage;
+        $sessionData['error_message'] = $apiErrorMessage ?? $technicalError;
+        $sessionData['api_error_message'] = $apiErrorMessage; 
+        $sessionData['technical_error'] = $technicalError;
+        
+        // Track retry attempts for API calls
+        $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
+        $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+        $maxRetries = config('ussd.max_input_retries', 3);
+        
+        // Check if retry limit exceeded for this API call
+        if ($maxRetries > 0 && $retryCount >= $maxRetries) {
+            $maxRetryMessage = config('ussd.max_retry_exceeded_message', 'Maximum retry attempts exceeded. Please start a new session.');
+            $this->logSessionAction($session, 'max_retries_exceeded', $option->option_value ?? 'api_call', $maxRetryMessage, 'error');
+            
+            $this->completeSession($session);
+            return [
+                'success' => false,
+                'message' => $maxRetryMessage,
+                'requires_input' => false,
+                'session_ended' => true,
+            ];
+        }
+        
+        // Increment retry count for this API call
+        if (!isset($sessionData['input_retries'])) {
+            $sessionData['input_retries'] = [];
+        }
+        $sessionData['input_retries'][$retryKey] = $retryCount + 1;
+        
+        $sessionData['last_api_error'] = [
+            'flow_id' => $session->current_flow_id,
+            'option_id' => $option->id ?? null,
+            'option_value' => $option->option_value ?? null,
+            'api_configuration_id' => $apiData['api_configuration_id'] ?? null,
+            'retry_count' => $retryCount + 1,
+        ];
+        
+        // Merge API error data into session data for placeholder access
+        if (!empty($apiErrorData)) {
+            foreach ($apiErrorData as $key => $value) {
+                if (is_scalar($value)) {
+                    $sessionData['api_error_' . $key] = $value;
+                }
+            }
+        }
+        
         $session->update(['session_data' => $sessionData]);
         
-        // Check if there's an error flow to navigate to
+        $errorMessage = $this->processErrorMessageTemplate($errorMessageTemplate, [
+            'error_message' => $apiErrorMessage ?? $technicalError,
+            'api_error_message' => $apiErrorMessage,
+            'technical_error' => $technicalError,
+            'session' => $sessionData,
+            'api_data' => $apiErrorData,
+        ]);
+        
         $errorFlowId = $apiData['error_flow_id'] ?? null;
         
         if ($errorFlowId) {
             $errorFlow = USSDFlow::find($errorFlowId);
             if ($errorFlow && $errorFlow->is_active) {
-                $session->update(['current_flow_id' => $errorFlow->id]);
+                // Store that we're in an error flow state (for retry detection)
+                $sessionData['in_error_flow'] = true;
+                $sessionData['error_flow_id'] = $errorFlowId;
+                $session->update(['session_data' => $sessionData, 'current_flow_id' => $errorFlow->id]);
                 
                 // Replace placeholders in menu text with session data including error message
                 $menuText = $this->replacePlaceholdersWithApiAndSessionData($errorFlow->menu_text, [], $sessionData);
@@ -1224,6 +1450,23 @@ class USSDSessionService
             }
         }
         
+        // If no error flow, stay in current flow and show error message with same options
+        // This allows user to retry by selecting the same option again
+        $currentFlow = $session->currentFlow;
+        if ($currentFlow) {
+            $menuText = $this->replacePlaceholdersWithApiAndSessionData($currentFlow->menu_text, [], $sessionData);
+            $fullMessage = $errorMessage . "\n\n" . $menuText;
+            
+            return [
+                'success' => false,
+                'message' => $fullMessage,
+                'flow_title' => $currentFlow->title,
+                'requires_input' => true,
+                'current_flow' => $currentFlow,
+                'options' => $currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
+            ];
+        }
+        
         // Default: end session with error message
         $this->completeSession($session);
         
@@ -1233,6 +1476,50 @@ class USSDSessionService
             'requires_input' => false,
             'session_ended' => true,
         ];
+    }
+    
+    /**
+     * Process error message template with placeholders
+     * Supports {{error_message}}, {{api_error_message}}, {{technical_error}}, and nested paths
+     * 
+     * @param string $template Error message template
+     * @param array $context Context data for placeholder replacement
+     * @return string Processed error message
+     */
+    private function processErrorMessageTemplate(string $template, array $context): string
+    {
+        // Replace placeholders in format {{variable}} or {{nested.path}}
+        return preg_replace_callback('/\{\{([^}]+)\}\}/', function($matches) use ($context) {
+            $path = trim($matches[1]);
+            
+            // Handle nested paths (e.g., api_data.message, session.phone_number)
+            $value = $this->getNestedValueFromContext($path, $context);
+            
+            // If value found, return it; otherwise return empty string (don't show placeholder)
+            return $value !== null ? (string) $value : '';
+        }, $template);
+    }
+    
+    /**
+     * Get nested value from context array using dot notation
+     * 
+     * @param string $path Dot-notation path (e.g., "api_data.message", "session.phone_number")
+     * @param array $context Context array
+     * @return mixed|null
+     */
+    private function getNestedValueFromContext(string $path, array $context)
+    {
+        $keys = explode('.', $path);
+        $value = $context;
+        
+        foreach ($keys as $key) {
+            if (!is_array($value) || !isset($value[$key])) {
+                return null;
+            }
+            $value = $value[$key];
+        }
+        
+        return $value;
     }
 
     /**

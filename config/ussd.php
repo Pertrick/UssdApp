@@ -98,4 +98,20 @@ return [
     */
     'session_timeout' => env('USSD_SESSION_TIMEOUT', 30), // minutes
     'validate_session_ownership' => env('USSD_VALIDATE_SESSION_OWNERSHIP', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Input Retry Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Maximum number of retry attempts allowed for user input submissions.
+    | This applies to all input types (menu selections, text input, API calls, etc.).
+    | Set to 0 to disable retry limiting.
+    |
+    | Example .env:
+    | USSD_MAX_INPUT_RETRIES=3
+    |
+    */
+    'max_input_retries' => env('USSD_MAX_INPUT_RETRIES', 3),
+    'max_retry_exceeded_message' => env('USSD_MAX_RETRY_EXCEEDED_MESSAGE', 'Maximum retry attempts exceeded. Please start a new session.'),
 ];
