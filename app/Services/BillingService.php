@@ -6,33 +6,210 @@ use App\Models\USSDSession;
 use App\Models\Business;
 use App\Models\User;
 use App\Models\BillingTransaction;
+use App\Models\NetworkPricing;
+use App\Models\UssdCost;
 use App\Enums\BillingMethod;
 use App\Services\InvoiceService;
+use App\Services\GatewayCostService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class BillingService
 {
     protected $invoiceService;
+    protected $gatewayCostService;
 
-    public function __construct(InvoiceService $invoiceService)
+    public function __construct(InvoiceService $invoiceService, GatewayCostService $gatewayCostService)
     {
         $this->invoiceService = $invoiceService;
+        $this->gatewayCostService = $gatewayCostService;
     }
 
     /**
-     * Calculate session cost based on business pricing
+     * Calculate session cost using dynamic markup pricing: AT Cost + Markup%
+     * 
+     * Formula: Final Price = AT Cost × (1 + Markup%)
+     * 
+     * Steps:
+     * 1. Get latest AT cost from ussd_costs table (auto-updated from events)
+     * 2. Get markup percentage from network_pricing table
+     * 3. Calculate: Price = AT Cost × (1 + Markup%)
+     * 4. Apply minimum price if set (ensures profitability)
+     * 5. Apply business discount (percentage or fixed)
+     * 
+     * @param USSDSession $session
+     * @return float The amount to charge the customer (in main currency, e.g., NGN)
      */
     public function calculateSessionCost(USSDSession $session): float
     {
         $ussd = $session->ussd;
         $business = $ussd->business;
-        
-        // Get pricing from business settings
-        $sessionPrice = $business->session_price ?? 0.02; // Default per-session price
         $currency = $business->billing_currency ?? config('app.currency', 'NGN');
+        $country = config('app.country', 'NG');
         
-        return $sessionPrice;
+        // Get network provider from session or detect from phone number
+        $networkProvider = $session->network_provider;
+        if (!$networkProvider && $session->phone_number) {
+            $networkProvider = $this->gatewayCostService->detectNetworkProvider($session->phone_number);
+        }
+        
+        // Step 1: Get latest AT cost from database (auto-updated from events)
+        $atCostInMainCurrency = $this->getLatestATCost($country, $networkProvider, $currency);
+        
+        // Step 2: Get markup from network_pricing table
+        $markupPercentage = $this->getMarkupPercentage($country, $networkProvider);
+        
+        // Step 3: Calculate base price: AT Cost × (1 + Markup%)
+        $basePrice = $atCostInMainCurrency * (1 + ($markupPercentage / 100));
+        
+        // Step 4: Apply minimum price if set
+        $minimumPrice = $this->getMinimumPrice($country, $networkProvider);
+        if ($minimumPrice && $basePrice < $minimumPrice) {
+            $basePrice = $minimumPrice;
+        }
+        
+        // Step 5: Apply business discount if any
+        $finalPrice = $this->applyBusinessDiscount($basePrice, $business);
+        
+        Log::info('Session cost calculated (dynamic markup)', [
+            'session_id' => $session->id,
+            'business_id' => $business->id,
+            'network' => $networkProvider,
+            'at_cost' => $atCostInMainCurrency,
+            'markup_percentage' => $markupPercentage,
+            'base_price' => $basePrice,
+            'minimum_price' => $minimumPrice,
+            'discount_type' => $business->discount_type ?? 'none',
+            'discount_percentage' => $business->discount_percentage,
+            'discount_amount' => $business->discount_amount,
+            'final_price' => $finalPrice,
+            'currency' => $currency,
+        ]);
+        
+        return round($finalPrice, 4);
+    }
+
+    /**
+     * Get latest AT cost for a network from ussd_costs table
+     * Costs are automatically updated from AfricasTalking webhook events
+     */
+    protected function getLatestATCost(string $country, ?string $networkProvider, string $currency): float
+    {
+        if (!$networkProvider) {
+            // Fallback to config default if no network
+            $costs = config('services.africastalking.cost_per_session', []);
+            $defaultCost = $costs['default'] ?? 0.05;
+            return (float) $defaultCost;
+        }
+        
+        $networkUpper = strtoupper(trim($networkProvider));
+        $ussdCost = UssdCost::getActiveCost($country, $networkUpper);
+        
+        if ($ussdCost) {
+            // Convert from smallest unit to main currency
+            $costInMainCurrency = $this->gatewayCostService->convertFromSmallestUnit(
+                $ussdCost->cost_per_session, 
+                $ussdCost->currency ?? $currency
+            );
+            return (float) $costInMainCurrency;
+        }
+        
+        // Fallback to config
+        $costs = config('services.africastalking.cost_per_session', []);
+        $defaultCost = $costs['default'] ?? 0.05;
+        
+        $networkKey = strtolower($networkProvider);
+        $networkMap = [
+            'mtn' => 'mtn',
+            'airtel' => 'airtel',
+            'glo' => 'glo',
+            '9mobile' => '9mobile'
+        ];
+        
+        $mappedKey = $networkMap[$networkKey] ?? $networkKey;
+        if (isset($costs[$mappedKey])) {
+            return (float) $costs[$mappedKey];
+        }
+        
+        Log::warning('Using default AT cost from config (no database entry)', [
+            'network' => $networkProvider,
+            'cost' => $defaultCost,
+        ]);
+        
+        return (float) $defaultCost;
+    }
+    
+    /**
+     * Get markup percentage for a network from network_pricing table
+     */
+    protected function getMarkupPercentage(string $country, ?string $networkProvider): float
+    {
+        if (!$networkProvider) {
+            // Default markup: 50%
+            return 50.0;
+        }
+        
+        $networkUpper = strtoupper(trim($networkProvider));
+        $networkPricing = NetworkPricing::getActivePricing($country, $networkUpper);
+        
+        if ($networkPricing) {
+            return (float) $networkPricing->markup_percentage;
+        }
+        
+        // Default markup: 50%
+        Log::info('Using default markup percentage (no network_pricing entry)', [
+            'network' => $networkProvider,
+            'markup' => 50.0,
+        ]);
+        
+        return 50.0;
+    }
+    
+    /**
+     * Get minimum price for a network from network_pricing table
+     */
+    protected function getMinimumPrice(string $country, ?string $networkProvider): ?float
+    {
+        if (!$networkProvider) {
+            return null;
+        }
+        
+        $networkUpper = strtoupper(trim($networkProvider));
+        $networkPricing = NetworkPricing::getActivePricing($country, $networkUpper);
+        
+        if ($networkPricing && $networkPricing->minimum_price) {
+            return (float) $networkPricing->minimum_price;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Apply business discount to base price
+     */
+    protected function applyBusinessDiscount(float $basePrice, Business $business): float
+    {
+        $discountType = $business->discount_type ?? 'none';
+        
+        if ($discountType === 'none' || !$business->discount_type) {
+            return $basePrice;
+        }
+        
+        if ($discountType === 'percentage') {
+            $discountPercent = (float) ($business->discount_percentage ?? 0);
+            if ($discountPercent > 0 && $discountPercent <= 100) {
+                $discounted = $basePrice * (1 - ($discountPercent / 100));
+                return max(0, round($discounted, 4)); // Ensure non-negative
+            }
+        } elseif ($discountType === 'fixed') {
+            $discountAmount = (float) ($business->discount_amount ?? 0);
+            if ($discountAmount > 0) {
+                $discounted = $basePrice - $discountAmount;
+                return max(0, round($discounted, 4)); // Ensure non-negative
+            }
+        }
+        
+        return $basePrice;
     }
 
     /**

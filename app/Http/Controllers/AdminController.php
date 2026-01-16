@@ -10,6 +10,7 @@ use App\Enums\UserRole;
 use App\Models\Invoice;
 use App\Models\Business;
 use App\Models\UssdCost;
+use App\Models\NetworkPricing;
 use App\Models\Environment;
 use App\Models\USSDSession;
 use App\Enums\BillingMethod;
@@ -373,73 +374,114 @@ class AdminController extends Controller
     public function settings()
     {
         $roles = Role::withCount('users')->get();
-        $ussdCosts = UssdCost::where('country', 'NG')
-            ->orderBy('network')
-            ->orderByDesc('effective_from')
-            ->get()
-            ->groupBy('network')
-            ->map(function ($costs) {
-                // Get the most recent active cost for each network
-                return $costs->where('is_active', true)->sortByDesc('effective_from')->first();
-            })
-            ->filter()
-            ->values();
+        
+        $country = config('app.country', 'NG');
+        $currency = config('app.currency', 'NGN');
+        
+        // Get all networks (MTN, Airtel, Glo, 9mobile)
+        $networks = ['MTN', 'Airtel', 'Glo', '9mobile'];
+        $networkPricing = [];
+        
+        $gatewayCostService = app(\App\Services\GatewayCostService::class);
+        
+        foreach ($networks as $network) {
+            // Get latest AT cost from ussd_costs table
+            $atCost = UssdCost::getActiveCost($country, $network);
+            $atCostInMainCurrency = 0;
+            
+            if ($atCost) {
+                $atCostInMainCurrency = $gatewayCostService->convertFromSmallestUnit(
+                    $atCost->cost_per_session,
+                    $atCost->currency ?? $currency
+                );
+            }
+            
+            // Get markup from network_pricing table
+            $pricing = \App\Models\NetworkPricing::getActivePricing($country, $network);
+            
+            $networkPricing[] = [
+                'id' => $pricing?->id,
+                'network' => $network,
+                'at_cost' => $atCostInMainCurrency,
+                'at_cost_updated_at' => $atCost?->updated_at?->toDateString(),
+                'markup_percentage' => $pricing?->markup_percentage ?? 50.0,
+                'minimum_price' => $pricing?->minimum_price,
+                'currency' => $currency,
+                'is_active' => $pricing?->is_active ?? true,
+            ];
+        }
         
         return Inertia::render('Admin/Settings', [
             'roles' => $roles,
-            'ussdCosts' => $ussdCosts,
+            'networkPricing' => $networkPricing,
         ]);
     }
     
     /**
-     * Update USSD cost
+     * Create or update network pricing (markup)
      */
-    public function updateUssdCost(Request $request, UssdCost $ussdCost)
-    {
-        $request->validate([
-            'cost_per_session' => 'required|numeric|min:0',
-            'effective_from' => 'required|date',
-            'is_active' => 'boolean',
-        ]);
-        
-        // Convert to smallest unit (kobo for NGN)
-        $costInSmallestUnit = (int) round($request->cost_per_session * 100);
-        
-        $ussdCost->update([
-            'cost_per_session' => $costInSmallestUnit,
-            'effective_from' => $request->effective_from,
-            'is_active' => $request->has('is_active') ? $request->is_active : true,
-        ]);
-        
-        return back()->with('success', 'USSD cost updated successfully!');
-    }
-    
-    /**
-     * Create new USSD cost
-     */
-    public function createUssdCost(Request $request)
+    public function createNetworkPricing(Request $request)
     {
         $request->validate([
             'network' => 'required|string|max:255',
-            'cost_per_session' => 'required|numeric|min:0',
+            'markup_percentage' => 'required|numeric|min:0|max:1000',
+            'minimum_price' => 'nullable|numeric|min:0',
             'country' => 'required|string|size:2',
             'currency' => 'required|string|size:3',
-            'effective_from' => 'required|date',
         ]);
         
-        // Convert to smallest unit (kobo for NGN)
-        $costInSmallestUnit = (int) round($request->cost_per_session * 100);
+        NetworkPricing::updateOrCreate(
+            [
+                'country' => $request->country,
+                'network' => $request->network,
+            ],
+            [
+                'markup_percentage' => $request->markup_percentage,
+                'minimum_price' => $request->minimum_price,
+                'currency' => $request->currency,
+                'is_active' => true,
+            ]
+        );
         
-        UssdCost::create([
-            'country' => $request->country,
-            'network' => $request->network,
-            'cost_per_session' => $costInSmallestUnit,
-            'currency' => $request->currency,
-            'effective_from' => $request->effective_from,
-            'is_active' => true,
+        return back()->with('success', 'Network pricing created successfully!');
+    }
+    
+    /**
+     * Update network pricing (markup)
+     */
+    public function updateNetworkPricing(Request $request, NetworkPricing $networkPricing)
+    {
+        $request->validate([
+            'markup_percentage' => 'required|numeric|min:0|max:1000',
+            'minimum_price' => 'nullable|numeric|min:0',
         ]);
         
-        return back()->with('success', 'USSD cost created successfully!');
+        $networkPricing->update([
+            'markup_percentage' => $request->markup_percentage,
+            'minimum_price' => $request->minimum_price,
+        ]);
+        
+        return back()->with('success', 'Network pricing updated successfully!');
+    }
+    
+    /**
+     * Update business discount
+     */
+    public function updateBusinessDiscount(Request $request, Business $business)
+    {
+        $request->validate([
+            'discount_type' => 'required|in:none,percentage,fixed',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100|required_if:discount_type,percentage',
+            'discount_amount' => 'nullable|numeric|min:0|required_if:discount_type,fixed',
+        ]);
+        
+        $business->update([
+            'discount_type' => $request->discount_type,
+            'discount_percentage' => $request->discount_type === 'percentage' ? $request->discount_percentage : null,
+            'discount_amount' => $request->discount_type === 'fixed' ? $request->discount_amount : null,
+        ]);
+        
+        return back()->with('success', 'Business discount updated successfully!');
     }
 
     /**
@@ -736,5 +778,368 @@ class AdminController extends Controller
             $business->suspendAccount($request->suspension_reason);
             return back()->with('success', 'Account suspended successfully!');
         }
+    }
+
+    /**
+     * Comprehensive billing report with profit/loss analysis
+     * Shows revenue, gateway costs, and profit for all businesses with network breakdown
+     * 
+     * IMPORTANT: Only includes PRODUCTION sessions. Testing sessions are excluded.
+     */
+    public function billingReport(Request $request)
+    {
+        $currency = config('app.currency', 'NGN');
+        $currencySymbol = config('app.currency_symbol', '₦');
+        $gatewayCostService = app(GatewayCostService::class);
+
+        // Date range filters
+        $startDate = $request->input('start_date') 
+            ? Carbon::parse($request->input('start_date'))->startOfDay()
+            : now()->startOfMonth();
+        $endDate = $request->input('end_date')
+            ? Carbon::parse($request->input('end_date'))->endOfDay()
+            : now()->endOfDay();
+
+        // Additional filters
+        $networkFilter = $request->input('network'); // Filter by specific network
+        $businessFilter = $request->input('business_id'); // Filter by specific business
+
+        // Get production/live environment IDs only (exclude testing)
+        $productionEnvironmentIds = Environment::whereIn('name', [EnvironmentType::PRODUCTION->value, 'live'])
+            ->pluck('id')
+            ->toArray();
+
+        // Explicitly exclude testing environment IDs
+        $testingEnvironmentIds = Environment::where('name', EnvironmentType::TESTING->value)
+            ->pluck('id')
+            ->toArray();
+
+        // Base query for billed production sessions ONLY
+        // Excludes: testing environments, testing billing status, and any non-production sessions
+        $baseQuery = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged') // Only charged sessions (excludes 'testing' status)
+            ->whereIn('environment_id', $productionEnvironmentIds) // Only production/live environments
+            ->whereNotIn('environment_id', $testingEnvironmentIds) // Explicitly exclude testing
+            ->whereBetween('billed_at', [$startDate, $endDate])
+            ->with(['ussd.business', 'environment']);
+
+        // Apply network filter if provided
+        if ($networkFilter) {
+            $baseQuery->where('network_provider', $networkFilter);
+        }
+
+        // Apply business filter if provided
+        if ($businessFilter) {
+            $baseQuery->whereHas('ussd', function($q) use ($businessFilter) {
+                $q->where('business_id', $businessFilter);
+            });
+        }
+
+        // Platform-wide summary
+        $allSessions = (clone $baseQuery)->get();
+        $platformRevenue = (float) $allSessions->sum('billing_amount');
+        $platformGatewayCostsInSmallestUnit = (int) ($allSessions->sum('gateway_cost') ?? 0);
+        $platformGatewayCosts = $gatewayCostService->convertFromSmallestUnit($platformGatewayCostsInSmallestUnit, $currency);
+        $platformProfit = $platformRevenue - $platformGatewayCosts;
+        $platformMargin = $platformRevenue > 0 ? ($platformProfit / $platformRevenue) * 100 : 0;
+
+        // Network breakdown (all businesses combined)
+        $networkBreakdown = [];
+        $networks = $allSessions->whereNotNull('network_provider')->pluck('network_provider')->unique()->sort();
+        
+        foreach ($networks as $network) {
+            $networkSessions = $allSessions->where('network_provider', $network);
+            $networkRevenue = (float) $networkSessions->sum('billing_amount');
+            $networkCostsInSmallestUnit = (int) ($networkSessions->sum('gateway_cost') ?? 0);
+            $networkCosts = $gatewayCostService->convertFromSmallestUnit($networkCostsInSmallestUnit, $currency);
+            $networkProfit = $networkRevenue - $networkCosts;
+            $networkMargin = $networkRevenue > 0 ? ($networkProfit / $networkRevenue) * 100 : 0;
+            $networkAvgCostPerSession = $networkSessions->count() > 0 
+                ? $networkCosts / $networkSessions->count() 
+                : 0;
+            $networkAvgRevenuePerSession = $networkSessions->count() > 0 
+                ? $networkRevenue / $networkSessions->count() 
+                : 0;
+
+            $networkBreakdown[] = [
+                'network' => $network,
+                'sessions' => $networkSessions->count(),
+                'revenue' => round($networkRevenue, 2),
+                'gateway_costs' => round($networkCosts, 2),
+                'profit' => round($networkProfit, 2),
+                'margin_percentage' => round($networkMargin, 2),
+                'avg_cost_per_session' => round($networkAvgCostPerSession, 4),
+                'avg_revenue_per_session' => round($networkAvgRevenuePerSession, 4),
+            ];
+        }
+
+        // Unknown/Null network sessions
+        $unknownNetworkSessions = $allSessions->whereNull('network_provider');
+        if ($unknownNetworkSessions->count() > 0) {
+            $unknownRevenue = (float) $unknownNetworkSessions->sum('billing_amount');
+            $unknownCostsInSmallestUnit = (int) ($unknownNetworkSessions->sum('gateway_cost') ?? 0);
+            $unknownCosts = $gatewayCostService->convertFromSmallestUnit($unknownCostsInSmallestUnit, $currency);
+            $unknownProfit = $unknownRevenue - $unknownCosts;
+            $unknownMargin = $unknownRevenue > 0 ? ($unknownProfit / $unknownRevenue) * 100 : 0;
+
+            $networkBreakdown[] = [
+                'network' => 'Unknown/Unspecified',
+                'sessions' => $unknownNetworkSessions->count(),
+                'revenue' => round($unknownRevenue, 2),
+                'gateway_costs' => round($unknownCosts, 2),
+                'profit' => round($unknownProfit, 2),
+                'margin_percentage' => round($unknownMargin, 2),
+                'avg_cost_per_session' => round($unknownCosts / max($unknownNetworkSessions->count(), 1), 4),
+                'avg_revenue_per_session' => round($unknownRevenue / max($unknownNetworkSessions->count(), 1), 4),
+            ];
+        }
+
+        // Per-business breakdown
+        $businessBreakdown = [];
+        $businesses = Business::with(['ussds'])->get();
+
+        foreach ($businesses as $business) {
+            $businessSessions = $allSessions->filter(function($session) use ($business) {
+                return $session->ussd && $session->ussd->business_id === $business->id;
+            });
+
+            if ($businessSessions->isEmpty()) {
+                continue; // Skip businesses with no sessions in this period
+            }
+
+            $businessRevenue = (float) $businessSessions->sum('billing_amount');
+            $businessCostsInSmallestUnit = (int) ($businessSessions->sum('gateway_cost') ?? 0);
+            $businessCosts = $gatewayCostService->convertFromSmallestUnit($businessCostsInSmallestUnit, $currency);
+            $businessProfit = $businessRevenue - $businessCosts;
+            $businessMargin = $businessRevenue > 0 ? ($businessProfit / $businessRevenue) * 100 : 0;
+
+            // Network breakdown for this business
+            $businessNetworkBreakdown = [];
+            $businessNetworks = $businessSessions->whereNotNull('network_provider')->pluck('network_provider')->unique()->sort();
+            
+            foreach ($businessNetworks as $network) {
+                $networkSessions = $businessSessions->where('network_provider', $network);
+                $networkRevenue = (float) $networkSessions->sum('billing_amount');
+                $networkCostsInSmallestUnit = (int) ($networkSessions->sum('gateway_cost') ?? 0);
+                $networkCosts = $gatewayCostService->convertFromSmallestUnit($networkCostsInSmallestUnit, $currency);
+                $networkProfit = $networkRevenue - $networkCosts;
+
+                $businessNetworkBreakdown[] = [
+                    'network' => $network,
+                    'sessions' => $networkSessions->count(),
+                    'revenue' => round($networkRevenue, 2),
+                    'gateway_costs' => round($networkCosts, 2),
+                    'profit' => round($networkProfit, 2),
+                ];
+            }
+
+            // Get business billing method and pricing
+            $sessionPrice = $business->session_price ?? 0;
+            $billingMethod = $business->billing_method?->value ?? 'unknown';
+
+            $businessBreakdown[] = [
+                'id' => $business->id,
+                'business_name' => $business->business_name,
+                'business_email' => $business->business_email,
+                'billing_method' => $billingMethod,
+                'session_price' => round($sessionPrice, 4),
+                'currency' => $business->billing_currency ?? $currency,
+                'sessions' => $businessSessions->count(),
+                'revenue' => round($businessRevenue, 2),
+                'gateway_costs' => round($businessCosts, 2),
+                'profit' => round($businessProfit, 2),
+                'margin_percentage' => round($businessMargin, 2),
+                'avg_cost_per_session' => round($businessCosts / max($businessSessions->count(), 1), 4),
+                'avg_revenue_per_session' => round($businessRevenue / max($businessSessions->count(), 1), 4),
+                'is_profitable' => $businessProfit >= 0,
+                'network_breakdown' => $businessNetworkBreakdown,
+            ];
+        }
+
+        // Sort businesses by revenue (descending)
+        usort($businessBreakdown, function($a, $b) {
+            return $b['revenue'] <=> $a['revenue'];
+        });
+
+        // Sessions without gateway cost (data quality check)
+        $sessionsWithoutCost = $allSessions->whereNull('gateway_cost')->count();
+        $sessionsWithCost = $allSessions->whereNotNull('gateway_cost')->count();
+
+        // Calculate average values
+        $avgCostPerSession = $allSessions->count() > 0 
+            ? $platformGatewayCosts / $allSessions->count() 
+            : 0;
+        $avgRevenuePerSession = $allSessions->count() > 0 
+            ? $platformRevenue / $allSessions->count() 
+            : 0;
+
+        // Summary statistics
+        $summary = [
+            'currency' => $currency,
+            'currency_symbol' => $currencySymbol,
+            'period_start' => $startDate->format('Y-m-d'),
+            'period_end' => $endDate->format('Y-m-d'),
+            'total_sessions' => $allSessions->count(),
+            'sessions_with_gateway_cost' => $sessionsWithCost,
+            'sessions_without_gateway_cost' => $sessionsWithoutCost,
+            'revenue' => round($platformRevenue, 2),
+            'gateway_costs' => round($platformGatewayCosts, 2),
+            'profit' => round($platformProfit, 2),
+            'margin_percentage' => round($platformMargin, 2),
+            'avg_cost_per_session' => round($avgCostPerSession, 4),
+            'avg_revenue_per_session' => round($avgRevenuePerSession, 4),
+            'avg_profit_per_session' => round($platformProfit / max($allSessions->count(), 1), 4),
+            'total_businesses' => count($businessBreakdown),
+            'profitable_businesses' => collect($businessBreakdown)->where('is_profitable', true)->count(),
+            'unprofitable_businesses' => collect($businessBreakdown)->where('is_profitable', false)->count(),
+        ];
+
+        // Get available networks and businesses for filter dropdowns
+        $availableNetworks = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged')
+            ->whereIn('environment_id', $productionEnvironmentIds)
+            ->whereNotNull('network_provider')
+            ->distinct()
+            ->pluck('network_provider')
+            ->sort()
+            ->values();
+
+        // Get businesses that have production sessions
+        $availableBusinesses = Business::whereHas('ussds', function($q) use ($productionEnvironmentIds) {
+                $q->whereHas('sessions', function($sq) use ($productionEnvironmentIds) {
+                    $sq->where('is_billed', true)
+                       ->where('billing_status', 'charged')
+                       ->whereIn('environment_id', $productionEnvironmentIds);
+                });
+            })
+            ->select('id', 'business_name')
+            ->orderBy('business_name')
+            ->get();
+
+        return Inertia::render('Admin/BillingReport', [
+            'summary' => $summary,
+            'platform_summary' => [
+                'revenue' => round($platformRevenue, 2),
+                'gateway_costs' => round($platformGatewayCosts, 2),
+                'profit' => round($platformProfit, 2),
+                'margin_percentage' => round($platformMargin, 2),
+            ],
+            'network_breakdown' => $networkBreakdown,
+            'business_breakdown' => $businessBreakdown,
+            'filters' => [
+                'start_date' => $startDate->format('Y-m-d'),
+                'end_date' => $endDate->format('Y-m-d'),
+                'network' => $networkFilter,
+                'business_id' => $businessFilter,
+            ],
+            'available_networks' => $availableNetworks,
+            'available_businesses' => $availableBusinesses,
+        ]);
+    }
+
+    /**
+     * View all billing sessions for a specific business
+     * Shows individual sessions with session strings for auditing
+     */
+    public function businessBillingSessions(Request $request, Business $business)
+    {
+        $currency = config('app.currency', 'NGN');
+        $currencySymbol = config('app.currency_symbol', '₦');
+        $gatewayCostService = app(GatewayCostService::class);
+
+        // Date range filters
+        $startDate = $request->input('start_date') 
+            ? Carbon::parse($request->input('start_date'))->startOfDay()
+            : now()->startOfMonth();
+        $endDate = $request->input('end_date')
+            ? Carbon::parse($request->input('end_date'))->endOfDay()
+            : now()->endOfDay();
+
+        // Additional filters
+        $networkFilter = $request->input('network');
+
+        // Get production/live environment IDs only
+        $productionEnvironmentIds = Environment::whereIn('name', [EnvironmentType::PRODUCTION->value, 'live'])
+            ->pluck('id')
+            ->toArray();
+
+        $testingEnvironmentIds = Environment::where('name', EnvironmentType::TESTING->value)
+            ->pluck('id')
+            ->toArray();
+
+        // Query for this business's sessions
+        $query = USSDSession::where('is_billed', true)
+            ->where('billing_status', 'charged')
+            ->whereIn('environment_id', $productionEnvironmentIds)
+            ->whereNotIn('environment_id', $testingEnvironmentIds)
+            ->whereBetween('billed_at', [$startDate, $endDate])
+            ->whereHas('ussd', function($q) use ($business) {
+                $q->where('business_id', $business->id);
+            })
+            ->with(['ussd.business', 'environment'])
+            ->orderByDesc('billed_at');
+
+        // Apply network filter if provided
+        if ($networkFilter) {
+            $query->where('network_provider', $networkFilter);
+        }
+
+        $sessions = $query->paginate(50);
+
+        // Calculate totals
+        $totalSessions = $sessions->total();
+        $totalRevenue = (float) $sessions->sum('billing_amount');
+        $totalGatewayCostsInSmallestUnit = (int) ($sessions->sum('gateway_cost') ?? 0);
+        $totalGatewayCosts = $gatewayCostService->convertFromSmallestUnit($totalGatewayCostsInSmallestUnit, $currency);
+        $totalProfit = $totalRevenue - $totalGatewayCosts;
+
+        // Get available networks for filter (all production sessions for this business)
+        $availableNetworksQuery = USSDSession::whereHas('ussd', function($q) use ($business) {
+                $q->where('business_id', $business->id);
+            })
+            ->where('is_billed', true)
+            ->where('billing_status', 'charged')
+            ->whereIn('environment_id', $productionEnvironmentIds)
+            ->whereNotIn('environment_id', $testingEnvironmentIds)
+            ->whereNotNull('network_provider');
+        
+        $availableNetworks = $availableNetworksQuery
+            ->distinct()
+            ->pluck('network_provider')
+            ->sort()
+            ->values()
+            ->toArray();
+        
+        // Fallback: if no networks found in query, extract from current sessions
+        if (empty($availableNetworks) && $sessions->count() > 0) {
+            $availableNetworks = $sessions->getCollection()
+                ->whereNotNull('network_provider')
+                ->pluck('network_provider')
+                ->unique()
+                ->sort()
+                ->values()
+                ->toArray();
+        }
+
+        return Inertia::render('Admin/BusinessBillingSessions', [
+            'business' => $business,
+            'sessions' => $sessions,
+            'summary' => [
+                'total_sessions' => $totalSessions,
+                'total_revenue' => round($totalRevenue, 2),
+                'total_gateway_costs' => round($totalGatewayCosts, 2),
+                'total_profit' => round($totalProfit, 2),
+                'currency' => $currency,
+                'currency_symbol' => $currencySymbol,
+                'period_start' => $startDate->format('M d, Y'),
+                'period_end' => $endDate->format('M d, Y'),
+            ],
+            'filters' => [
+                'start_date' => $startDate->format('Y-m-d'),
+                'end_date' => $endDate->format('Y-m-d'),
+                'network' => $networkFilter,
+            ],
+            'available_networks' => $availableNetworks,
+        ]);
     }
 }

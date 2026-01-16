@@ -38,9 +38,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/analytics', [AdminController::class, 'analytics'])->name('analytics');
     Route::get('/settings', [AdminController::class, 'settings'])->name('settings');
     
-    // USSD Cost Management Routes
-    Route::post('/ussd-costs', [AdminController::class, 'createUssdCost'])->name('ussd-costs.create');
-    Route::put('/ussd-costs/{ussdCost}', [AdminController::class, 'updateUssdCost'])->name('ussd-costs.update');
+    // Network Pricing Management (Dynamic: AT Cost + Markup)
+    Route::post('/network-pricing', [AdminController::class, 'createNetworkPricing'])->name('network-pricing.create');
+    Route::put('/network-pricing/{networkPricing}', [AdminController::class, 'updateNetworkPricing'])->name('network-pricing.update');
+    
+    // Business Discount Management Routes
+    Route::post('/businesses/{business}/discount', [AdminController::class, 'updateBusinessDiscount'])->name('businesses.discount.update');
     
     // Billing Management Routes
     Route::get('/billing-change-requests', [AdminController::class, 'billingChangeRequests'])->name('billing-change-requests');
@@ -53,4 +56,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/invoices', [AdminController::class, 'invoices'])->name('invoices');
     Route::post('/invoices/generate', [AdminController::class, 'generateInvoice'])->name('invoices.generate');
     Route::post('/invoices/{invoice}/mark-paid', [AdminController::class, 'markInvoicePaid'])->name('invoices.mark-paid');
+    
+    // Comprehensive Billing Report
+    Route::get('/billing-report', [AdminController::class, 'billingReport'])->name('billing-report');
+    Route::get('/billing-report/business/{business}/sessions', [AdminController::class, 'businessBillingSessions'])->name('billing-report.business.sessions');
 });

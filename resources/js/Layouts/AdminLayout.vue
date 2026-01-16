@@ -29,6 +29,9 @@
                             <NavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
                                 Invoices
                             </NavLink>
+                            <NavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report')">
+                                Billing Report
+                            </NavLink>
                             <NavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                                 Settings
                             </NavLink>
@@ -83,12 +86,22 @@
                     <ResponsiveNavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
                         Invoices
                     </ResponsiveNavLink>
+                    <ResponsiveNavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report')">
+                        Billing Report
+                    </ResponsiveNavLink>
                     <ResponsiveNavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                         Settings
                     </ResponsiveNavLink>
                 </div>
             </div>
         </nav>
+
+        <!-- Page Heading -->
+        <header class="bg-white shadow-sm border-b border-gray-200" v-if="$slots.header">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <slot name="header" />
+            </div>
+        </header>
 
         <!-- Page Content -->
         <main class="py-6">

@@ -309,6 +309,33 @@
                                         Reason: {{ business.billing_change_reason }}
                                     </p>
                                 </div>
+
+                                <!-- Discount Information -->
+                                <div class="mt-4 pt-4 border-t border-gray-200">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="block text-sm font-medium text-gray-700">Pricing Discount</label>
+                                        <button @click="openDiscountModal" class="text-sm text-green-600 hover:text-green-800">
+                                            Update
+                                        </button>
+                                    </div>
+                                    <div v-if="business.discount_type && business.discount_type !== 'none'" class="p-3 bg-green-50 border border-green-200 rounded-lg">
+                                        <p class="text-sm font-medium text-green-800">
+                                            <span v-if="business.discount_type === 'percentage'">
+                                                {{ business.discount_percentage }}% Discount
+                                            </span>
+                                            <span v-else-if="business.discount_type === 'fixed'">
+                                                {{ formatCurrency(business.discount_amount, business.billing_currency) }} Fixed Discount
+                                            </span>
+                                        </p>
+                                        <p class="text-xs text-green-700 mt-1">
+                                            Applied to all network prices
+                                        </p>
+                                    </div>
+                                    <div v-else class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                        <p class="text-sm text-gray-600">No discount applied</p>
+                                        <p class="text-xs text-gray-500 mt-1">Business pays full network prices</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -378,6 +405,95 @@
                             </button>
                             <button type="submit" class="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700">
                                 Suspend
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Discount Update Modal -->
+        <div v-if="showDiscountModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+                <div class="mt-3">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Update Business Discount</h3>
+                    <form @submit.prevent="updateDiscount">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Discount Type *</label>
+                            <select
+                                v-model="discountForm.discount_type"
+                                @change="handleDiscountTypeChange"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                                required
+                            >
+                                <option value="none">No Discount</option>
+                                <option value="percentage">Percentage Discount</option>
+                                <option value="fixed">Fixed Amount Discount</option>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Discount is applied to the network-specific customer price
+                            </p>
+                        </div>
+
+                        <!-- Percentage Discount -->
+                        <div v-if="discountForm.discount_type === 'percentage'" class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Discount Percentage *</label>
+                            <div class="flex items-center">
+                                <input
+                                    v-model.number="discountForm.discount_percentage"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max="100"
+                                    required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                                    placeholder="e.g., 10 for 10%"
+                                />
+                                <span class="ml-2 text-sm text-gray-500">%</span>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Example: 10% off means customer pays 90% of network price
+                            </p>
+                        </div>
+
+                        <!-- Fixed Amount Discount -->
+                        <div v-if="discountForm.discount_type === 'fixed'" class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Discount Amount ({{ business.billing_currency || 'NGN' }}) *</label>
+                            <input
+                                v-model.number="discountForm.discount_amount"
+                                type="number"
+                                step="0.0001"
+                                min="0"
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                                placeholder="e.g., 1.00"
+                            />
+                            <p class="mt-1 text-xs text-gray-500">
+                                Example: ₦1.00 off means customer pays network price - ₦1.00
+                            </p>
+                        </div>
+
+                        <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h4 class="text-sm font-medium text-blue-900 mb-1">How it works:</h4>
+                            <p class="text-xs text-blue-800">
+                                Final Price = Network Price - Discount<br>
+                                Discount applies to all networks (MTN, Airtel, Glo, 9mobile)
+                            </p>
+                        </div>
+
+                        <div class="flex justify-end space-x-3">
+                            <button
+                                type="button"
+                                @click="closeDiscountModal"
+                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                            >
+                                Update Discount
                             </button>
                         </div>
                     </form>
@@ -475,6 +591,7 @@ const showApprovalModal = ref(false)
 const showRejectionModal = ref(false)
 const showSuspensionModal = ref(false)
 const showBillingModal = ref(false)
+const showDiscountModal = ref(false)
 
 const approvalForm = ref({
     notes: ''
@@ -493,6 +610,12 @@ const billingForm = ref({
     credit_limit: '',
     payment_terms_days: '',
     billing_cycle: 'monthly',
+})
+
+const discountForm = ref({
+    discount_type: 'none',
+    discount_percentage: null,
+    discount_amount: null,
 })
 
 const formatDate = (date) => {
@@ -671,5 +794,53 @@ const formatBillingCycle = (cycle) => {
         'monthly': 'Monthly'
     }
     return cycles[cycle] || cycle
+}
+
+const openDiscountModal = () => {
+    discountForm.value = {
+        discount_type: props.business.discount_type || 'none',
+        discount_percentage: props.business.discount_percentage ?? null,
+        discount_amount: props.business.discount_amount ?? null,
+    }
+    showDiscountModal.value = true
+}
+
+const closeDiscountModal = () => {
+    showDiscountModal.value = false
+    discountForm.value = {
+        discount_type: 'none',
+        discount_percentage: null,
+        discount_amount: null,
+    }
+}
+
+const handleDiscountTypeChange = () => {
+    // Reset values when type changes
+    if (discountForm.value.discount_type === 'percentage') {
+        discountForm.value.discount_amount = null
+    } else if (discountForm.value.discount_type === 'fixed') {
+        discountForm.value.discount_percentage = null
+    } else {
+        discountForm.value.discount_percentage = null
+        discountForm.value.discount_amount = null
+    }
+}
+
+const updateDiscount = () => {
+    const payload = {
+        discount_type: discountForm.value.discount_type,
+        discount_percentage: discountForm.value.discount_type === 'percentage' 
+            ? (discountForm.value.discount_percentage ?? null)
+            : null,
+        discount_amount: discountForm.value.discount_type === 'fixed'
+            ? (discountForm.value.discount_amount ?? null)
+            : null,
+    }
+
+    router.post(route('admin.businesses.discount.update', props.business.id), payload, {
+        onSuccess: () => {
+            closeDiscountModal()
+        },
+    })
 }
 </script>

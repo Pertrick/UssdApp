@@ -734,6 +734,47 @@ class USSDSessionService
         $retryKey = $flow->id . '_' . $input;
         $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
         
+        // Check if we're retrying a failed dynamic flow selection with API call
+        $lastApiError = $sessionData['last_api_error'] ?? null;
+        $inErrorFlow = $sessionData['in_error_flow'] ?? false;
+        $lastDynamicError = $sessionData['last_dynamic_error'] ?? null;
+        
+        // If we're in an error state and user selects the same option that failed, retry it
+        if (($inErrorFlow || $lastDynamicError) && $lastDynamicError && $lastDynamicError['flow_id'] == $flow->id && $lastDynamicError['option_index'] == $input) {
+            // Increment retry count
+            if (!isset($sessionData['input_retries'])) {
+                $sessionData['input_retries'] = [];
+            }
+            $sessionData['input_retries'][$retryKey] = ($sessionData['input_retries'][$retryKey] ?? 0) + 1;
+            $currentRetryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+            
+            // Check if retry limit exceeded
+            if ($maxRetries > 0 && $currentRetryCount >= $maxRetries) {
+                $this->logSessionAction($session, 'max_retries_exceeded', $input, 'Maximum retry attempts exceeded', 'error');
+                return $this->handleEndSession($session, null, 'Thank you for using our service.');
+            }
+            
+            $session->update(['session_data' => $sessionData]);
+            
+            // Retry: Re-select the same dynamic option and process it again
+            $inputNumber = (int) $input;
+            if ($inputNumber > 0 && $inputNumber <= count($dynamicOptions)) {
+                $selectedOption = $dynamicOptions[$inputNumber - 1];
+                
+                // Clear error state before retrying
+                unset($sessionData['in_error_flow']);
+                unset($sessionData['error_flow_id']);
+                unset($sessionData['last_dynamic_error']);
+                $session->update(['session_data' => $sessionData]);
+                
+                // Log retry
+                $this->logSessionAction($session, 'dynamic_retry', $input, "Retrying dynamic flow selection (attempt {$currentRetryCount})", 'info');
+                
+                // Continue with normal processing of the selected option
+                // (will fall through to the rest of the function)
+            }
+        }
+        
         // Find the selected option from dynamic options
         $selectedOption = null;
         $inputNumber = (int) $input;
@@ -863,6 +904,8 @@ class USSDSessionService
         
         // Store the selected option data in session
         $sessionData['selected_dynamic_option'] = $selectedOption;
+        $sessionData['last_dynamic_selection_index'] = $input; // Store the option index for retry detection
+        $sessionData['previous_flow_id'] = $flow->id; // Store current flow ID before navigation
         
         // Store the full item data for use in subsequent flows
         if (isset($selectedOption['data'])) {
@@ -1388,6 +1431,17 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             'retry_count' => $retryCount + 1,
         ];
         
+        // Also store dynamic flow error info if this came from a dynamic flow selection
+        $previousFlowId = $sessionData['previous_flow_id'] ?? null;
+        $selectedDynamicOption = $sessionData['selected_dynamic_option'] ?? null;
+        if ($previousFlowId && $selectedDynamicOption) {
+            $sessionData['last_dynamic_error'] = [
+                'flow_id' => $previousFlowId,
+                'option_index' => $sessionData['last_dynamic_selection_index'] ?? null,
+                'option_value' => $selectedDynamicOption['value'] ?? null,
+            ];
+        }
+        
         // Merge API error data into session data for placeholder access
         if (!empty($apiErrorData)) {
             foreach ($apiErrorData as $key => $value) {
@@ -1412,12 +1466,10 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         if ($errorFlowId) {
             $errorFlow = USSDFlow::find($errorFlowId);
             if ($errorFlow && $errorFlow->is_active) {
-                // Store that we're in an error flow state (for retry detection)
                 $sessionData['in_error_flow'] = true;
                 $sessionData['error_flow_id'] = $errorFlowId;
                 $session->update(['session_data' => $sessionData, 'current_flow_id' => $errorFlow->id]);
                 
-                // Replace placeholders in menu text with session data including error message
                 $menuText = $this->replacePlaceholdersWithApiAndSessionData($errorFlow->menu_text, [], $sessionData);
                 
                 return [
@@ -1431,7 +1483,36 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             }
         }
         
-        // If no error flow, stay in current flow and show error message with same options
+        $previousFlowId = $sessionData['previous_flow_id'] ?? null;
+        $lastDynamicSelection = $sessionData['last_dynamic_selection_index'] ?? null;
+        
+        if ($previousFlowId && $lastDynamicSelection) {
+            $previousFlow = USSDFlow::find($previousFlowId);
+            if ($previousFlow && $previousFlow->flow_type === 'dynamic' && $previousFlow->is_active) {
+                $sessionData['in_error_flow'] = true;
+                $sessionData['last_dynamic_error'] = [
+                    'flow_id' => $previousFlowId,
+                    'option_index' => $lastDynamicSelection,
+                ];
+                $session->update(['session_data' => $sessionData, 'current_flow_id' => $previousFlowId]);
+                $session->refresh();
+                $session->load('currentFlow');
+                
+                // Regenerate dynamic flow display
+                $flowDisplay = $this->getCurrentFlowDisplay($session);
+                $fullMessage = $errorMessage . "\n\n" . $flowDisplay['message'];
+                
+                return [
+                    'success' => false,
+                    'message' => $fullMessage,
+                    'flow_title' => $flowDisplay['flow_title'] ?? $previousFlow->title,
+                    'requires_input' => true,
+                    'current_flow' => $previousFlow,
+                ];
+            }
+        }
+        
+        // If no error flow and not from dynamic flow, stay in current flow and show error message with same options
         // This allows user to retry by selecting the same option again
         $currentFlow = $session->currentFlow;
         if ($currentFlow) {

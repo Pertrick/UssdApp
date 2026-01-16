@@ -46,21 +46,31 @@ class GatewayCostService
         $country = config('app.country', 'NG'); 
         $currency = config('app.currency', 'NGN');
         
-        // Try to get cost from database first
+        // Try to get cost from database first (database takes priority)
         if ($networkProvider) {
-            $networkUpper = strtoupper($networkProvider);
+            // Normalize network name to uppercase for database lookup
+            // Handle variations: "MTN", "mtn", "Mtn" -> "MTN"
+            $networkUpper = strtoupper(trim($networkProvider));
+            
+            // Try exact match first
             $ussdCost = UssdCost::getActiveCost($country, $networkUpper);
+            
+            // If not found, try common variations (e.g., "9MOBILE" vs "9MOBILE")
+            if (!$ussdCost && $networkUpper === '9MOBILE') {
+                $ussdCost = UssdCost::getActiveCost($country, '9MOBILE');
+            }
             
             if ($ussdCost) {
                 $costInSmallestUnit = $ussdCost->cost_per_session;
                 $currency = $ussdCost->currency;
+                $costInMainCurrency = $this->convertFromSmallestUnit($costInSmallestUnit, $currency);
                 
                 Log::info('AfricasTalking cost from database', [
                     'session_id' => $session->id,
                     'network' => $networkProvider,
                     'network_upper' => $networkUpper,
                     'cost_id' => $ussdCost->id,
-                    'cost' => $this->convertFromSmallestUnit($costInSmallestUnit, $currency),
+                    'cost' => $costInMainCurrency,
                     'cost_in_smallest_unit' => $costInSmallestUnit,
                     'currency' => $currency,
                     'effective_from' => $ussdCost->effective_from,
@@ -73,17 +83,19 @@ class GatewayCostService
                     'network' => $networkProvider,
                 ];
             } else {
-                // Log when no database entry found
-                Log::warning('No active USSD cost found in database', [
+                // Log when no database entry found - this indicates database pricing should be set
+                Log::warning('No active USSD cost found in database - falling back to config', [
                     'session_id' => $session->id,
                     'network' => $networkProvider,
                     'network_upper' => $networkUpper,
                     'country' => $country,
+                    'message' => 'Admin should add network cost to ussd_costs table for accurate pricing',
                 ]);
             }
         }
         
-        // Fallback to config if no database entry
+        // Fallback to config ONLY if no database entry exists
+        // This is a fallback and should not be used if database has network costs configured
         $costs = config('services.africastalking.cost_per_session', []);
         $currency = config('services.africastalking.cost_currency', 'NGN');
         $defaultCost = $costs['default'] ?? 3.0;
@@ -101,16 +113,29 @@ class GatewayCostService
             $mappedKey = $networkMap[$networkKey] ?? $networkKey;
             if (isset($costs[$mappedKey])) {
                 $cost = $costs[$mappedKey];
+                Log::info('Using network-specific config cost (fallback)', [
+                    'session_id' => $session->id,
+                    'network' => $networkProvider,
+                    'network_key' => $mappedKey,
+                    'cost' => $cost,
+                ]);
+            } else {
+                Log::info('Using default config cost (no network-specific config)', [
+                    'session_id' => $session->id,
+                    'network' => $networkProvider,
+                    'default_cost' => $defaultCost,
+                ]);
             }
         }
         
         $costInSmallestUnit = $this->convertToSmallestUnit((float) $cost, $currency);
         
-        Log::info('AfricasTalking cost from config (fallback)', [
+        Log::warning('AfricasTalking cost from config (fallback - database pricing recommended)', [
             'session_id' => $session->id,
             'network' => $networkProvider,
             'cost' => $cost,
             'currency' => $currency,
+            'note' => 'Consider adding network cost to ussd_costs table in Admin → Settings',
         ]);
         
         return [
