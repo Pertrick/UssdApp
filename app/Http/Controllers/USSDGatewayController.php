@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use App\Services\AfricasTalkingService;
+use App\Models\WebhookEvent;
 
 class USSDGatewayController extends Controller
 {
@@ -148,13 +149,27 @@ class USSDGatewayController extends Controller
      * Events include: session duration, cost, status, and other metadata.
      * 
      * @param Request $request
-     * @return Response
+     * @return \Illuminate\Http\JsonResponse
      */
     public function handleEvents(Request $request)
     {
+        $webhookEvent = null;
+        
         try {
+            // Store raw webhook event for auditing and debugging
+            $webhookEvent = WebhookEvent::create([
+                'event_type' => 'session_end',
+                'source' => 'africastalking',
+                'session_id' => $request->input('sessionId') ?? $request->input('session_id'),
+                'payload' => $request->all(),
+                'headers' => $request->headers->all(),
+                'ip_address' => $request->ip(),
+                'processing_status' => 'pending',
+            ]);
+
             // Log the event for debugging
             Log::info('AfricasTalking Event Received', [
+                'webhook_event_id' => $webhookEvent->id,
                 'payload' => $request->all(),
                 'headers' => $request->headers->all(),
             ]);
@@ -172,6 +187,11 @@ class USSDGatewayController extends Controller
             // Find the session by AfricasTalking session ID
             if ($sessionId) {
                 $session = \App\Models\USSDSession::where('session_id', $sessionId)->first();
+
+                // Link webhook event to session if found
+                if ($session && $webhookEvent) {
+                    $webhookEvent->update(['ussd_session_id' => $session->id]);
+                }
 
                 if ($session) {
                     // Update session with event data
@@ -226,6 +246,7 @@ class USSDGatewayController extends Controller
 
                     // Log the event with session context
                     Log::info('USSD Session Event Processed', [
+                        'webhook_event_id' => $webhookEvent->id ?? null,
                         'session_id' => $session->id,
                         'ussd_session_id' => $sessionId,
                         'status' => $status,
@@ -233,11 +254,27 @@ class USSDGatewayController extends Controller
                         'actual_cost_from_at' => $actualCost,
                         'network' => $network,
                     ]);
+
+                    // Mark webhook event as processed
+                    if ($webhookEvent) {
+                        $webhookEvent->markAsProcessed();
+                    }
                 } else {
                     Log::warning('USSD Session not found for event', [
+                        'webhook_event_id' => $webhookEvent->id ?? null,
                         'session_id' => $sessionId,
                         'phone_number' => $phoneNumber,
                     ]);
+
+                    // Mark as processed even if session not found (event was received successfully)
+                    if ($webhookEvent) {
+                        $webhookEvent->markAsProcessed();
+                    }
+                }
+            } else {
+                // No session ID provided - mark as processed anyway
+                if ($webhookEvent) {
+                    $webhookEvent->markAsProcessed();
                 }
             }
 
@@ -249,11 +286,19 @@ class USSDGatewayController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            $errorMessage = $e->getMessage() . "\nTrace: " . $e->getTraceAsString();
+            
             Log::error('AfricasTalking Event Processing Error', [
+                'webhook_event_id' => $webhookEvent->id ?? null,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'payload' => $request->all(),
             ]);
+
+            // Mark webhook event as failed if it was created
+            if ($webhookEvent) {
+                $webhookEvent->markAsFailed($errorMessage);
+            }
 
             // Still return 200 to prevent AfricasTalking from retrying
             // Log the error for manual investigation

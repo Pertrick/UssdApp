@@ -21,6 +21,7 @@ use App\Models\BillingChangeRequest;
 use App\Services\GatewayCostService;
 use Illuminate\Support\Facades\Storage;
 use App\Enums\BusinessRegistrationStatus;
+use App\Models\WebhookEvent;
 
 class AdminController extends Controller
 {
@@ -1140,6 +1141,74 @@ class AdminController extends Controller
                 'network' => $networkFilter,
             ],
             'available_networks' => $availableNetworks,
+        ]);
+    }
+
+    /**
+     * Show webhook events page
+     */
+    public function webhookEvents(Request $request)
+    {
+        $query = WebhookEvent::with('ussdSession');
+
+        // Filter by source
+        if ($request->has('source') && $request->source) {
+            $query->where('source', $request->source);
+        }
+
+        // Filter by processing status
+        if ($request->has('status') && $request->status) {
+            $query->where('processing_status', $request->status);
+        }
+
+        // Filter by event type
+        if ($request->has('event_type') && $request->event_type) {
+            $query->where('event_type', $request->event_type);
+        }
+
+        // Search by session ID
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('session_id', 'like', "%{$search}%")
+                  ->orWhere('id', 'like', "%{$search}%");
+            });
+        }
+
+        // Date range filter
+        if ($request->has('start_date') && $request->start_date) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->has('end_date') && $request->end_date) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        $events = $query->latest()->paginate(50);
+
+        // Statistics
+        $stats = [
+            'total' => WebhookEvent::count(),
+            'processed' => WebhookEvent::where('processing_status', 'processed')->count(),
+            'failed' => WebhookEvent::where('processing_status', 'failed')->count(),
+            'pending' => WebhookEvent::where('processing_status', 'pending')->count(),
+        ];
+
+        return Inertia::render('Admin/WebhookEvents', [
+            'events' => $events,
+            'stats' => $stats,
+            'filters' => $request->only(['source', 'status', 'event_type', 'search', 'start_date', 'end_date']),
+        ]);
+    }
+
+    /**
+     * Show webhook event details
+     */
+    public function showWebhookEvent(WebhookEvent $webhookEvent)
+    {
+        $webhookEvent->load('ussdSession.ussd.business');
+
+        return Inertia::render('Admin/WebhookEventDetail', [
+            'event' => $webhookEvent,
         ]);
     }
 }

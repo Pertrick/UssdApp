@@ -60,4 +60,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Comprehensive Billing Report
     Route::get('/billing-report', [AdminController::class, 'billingReport'])->name('billing-report');
     Route::get('/billing-report/business/{business}/sessions', [AdminController::class, 'businessBillingSessions'])->name('billing-report.business.sessions');
+    
+    // Webhook Events Management
+    Route::get('/webhook-events', [AdminController::class, 'webhookEvents'])->name('webhook-events');
+    Route::get('/webhook-events/{webhookEvent}', [AdminController::class, 'showWebhookEvent'])->name('webhook-events.show');
 });
