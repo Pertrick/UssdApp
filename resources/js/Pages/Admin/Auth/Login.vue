@@ -68,25 +68,6 @@
                         </button>
                     </div>
                 </form>
-
-                <div class="mt-6">
-                    <div class="relative">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-300" />
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-2 bg-white text-gray-500">Demo Credentials</span>
-                        </div>
-                    </div>
-
-                    <div class="mt-6 bg-gray-50 p-4 rounded-md">
-                        <div class="text-sm text-gray-600 space-y-1">
-                            <div><strong>Super Admin:</strong> admin@ussd.com / password</div>
-                            <div><strong>System Admin:</strong> system@ussd.com / password</div>
-                            <div><strong>Moderator:</strong> moderator@ussd.com / password</div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

@@ -6,7 +6,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Enums\UserRole;
 
 // Admin Authentication Routes (No middleware - accessible to everyone)
-Route::prefix('admin')->name('admin.')->group(function () {
+Route::prefix('admin-portal')->name('admin.')->group(function () {
     Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('login');
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -21,7 +21,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
 });
 
 // Admin Routes (Protected by auth and admin middleware)
-Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+Route::middleware(['auth', 'admin'])->prefix('admin-portal')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
     Route::get('/businesses', [AdminController::class, 'businesses'])->name('businesses');
     Route::get('/businesses/{business}', [AdminController::class, 'showBusiness'])->name('businesses.show');

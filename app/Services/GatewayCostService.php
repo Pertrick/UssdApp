@@ -212,7 +212,6 @@ class GatewayCostService
             return '9mobile';
         }
         
-        // If no match found, return null (will use default cost)
         return null;
     }
 
