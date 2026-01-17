@@ -217,6 +217,36 @@ class GatewayCostService
     }
 
     /**
+     * Normalize network name from AfricasTalking format to our standard format
+     * 
+     * AfricasTalking may send network names in different formats (uppercase, legacy names, etc.).
+     * This method normalizes them to our standard format: MTN, Airtel, Glo, 9mobile
+     * 
+     * @param string|null $network Network name from AfricasTalking (can be "MTN", "mtn", "ETISALAT", etc.)
+     * @return string|null Normalized network name (MTN, Airtel, Glo, 9mobile) or original if unknown
+     */
+    public function normalizeNetworkName(?string $network): ?string
+    {
+        if (!$network) {
+            return null;
+        }
+
+        // Normalize network name (e.g., "MTN" or "mtn" -> "MTN")
+        $normalizedNetwork = strtoupper(trim($network));
+        
+        // Map AfricasTalking network codes to our format if needed
+        $networkMap = [
+            'MTN' => 'MTN',
+            'AIRTEL' => 'Airtel',
+            'GLO' => 'Glo',
+            '9MOBILE' => '9mobile',
+            'ETISALAT' => '9mobile', // Legacy name
+        ];
+        
+        return $networkMap[$normalizedNetwork] ?? $normalizedNetwork;
+    }
+
+    /**
      * Record gateway cost for a session
      * 
      * This should be called when a session starts to track the actual cost

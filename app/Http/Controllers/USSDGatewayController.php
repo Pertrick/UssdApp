@@ -215,6 +215,11 @@ class USSDGatewayController extends Controller
                         $updateData['error_message'] = $errorMessage;
                     }
 
+                    if ($network) {
+                        $gatewayCostService = app(\App\Services\GatewayCostService::class);
+                        $updateData['network_provider'] = $gatewayCostService->normalizeNetworkName($network);
+                    }
+
                     // Update gateway cost with ACTUAL cost from AfricasTalking (if provided)
                     if ($actualCost !== null && is_numeric($actualCost) && $actualCost >= 0) {
                         $gatewayCostService = app(\App\Services\GatewayCostService::class);
