@@ -29,8 +29,11 @@
                             <NavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
                                 Invoices
                             </NavLink>
-                            <NavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report')">
+                            <NavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report*')">
                                 Billing Report
+                            </NavLink>
+                            <NavLink :href="route('admin.webhook-events')" :active="route().current('admin.webhook-events*')">
+                                Webhook Events
                             </NavLink>
                             <NavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                                 Settings
@@ -86,8 +89,11 @@
                     <ResponsiveNavLink :href="route('admin.invoices')" :active="route().current('admin.invoices*')">
                         Invoices
                     </ResponsiveNavLink>
-                    <ResponsiveNavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report')">
+                    <ResponsiveNavLink :href="route('admin.billing-report')" :active="route().current('admin.billing-report*')">
                         Billing Report
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink :href="route('admin.webhook-events')" :active="route().current('admin.webhook-events*')">
+                        Webhook Events
                     </ResponsiveNavLink>
                     <ResponsiveNavLink :href="route('admin.settings')" :active="route().current('admin.settings')">
                         Settings

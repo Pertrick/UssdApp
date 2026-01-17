@@ -206,7 +206,7 @@ class GatewayCostService
             return 'Glo';
         }
         
-        // 9mobile (formerly Etisalat) Nigeria prefixes
+       
         $nineMobilePrefixes = ['0809', '0817', '0818', '0908', '0909', '0918'];
         if (in_array($prefix, $nineMobilePrefixes)) {
             return '9mobile';
@@ -217,33 +217,50 @@ class GatewayCostService
     }
 
     /**
-     * Normalize network name from AfricasTalking format to our standard format
+     * Normalize network code from AfricasTalking to our standard format
      * 
-     * AfricasTalking may send network names in different formats (uppercase, legacy names, etc.).
-     * This method normalizes them to our standard format: MTN, Airtel, Glo, 9mobile
-     * 
-     * @param string|null $network Network name from AfricasTalking (can be "MTN", "mtn", "ETISALAT", etc.)
-     * @return string|null Normalized network name (MTN, Airtel, Glo, 9mobile) or original if unknown
+     * @param string|null $networkCode Numeric network code from AfricasTalking (e.g., "62130")
+     * @param string|null $phoneNumber Optional phone number for fallback detection
+     * @return string|null Normalized network name or null if invalid/unknown
      */
-    public function normalizeNetworkName(?string $network): ?string
+    public function normalizeNetworkCode(?string $networkCode, ?string $phoneNumber = null): ?string
     {
-        if (!$network) {
-            return null;
+        if (!$networkCode) {
+            return $phoneNumber ? $this->detectNetworkProvider($phoneNumber) : null;
         }
 
-        // Normalize network name (e.g., "MTN" or "mtn" -> "MTN")
-        $normalizedNetwork = strtoupper(trim($network));
+        $code = trim($networkCode);
+        $networkCodeMap = config('services.africastalking.network_codes', []);
         
-        // Map AfricasTalking network codes to our format if needed
-        $networkMap = [
-            'MTN' => 'MTN',
-            'AIRTEL' => 'Airtel',
-            'GLO' => 'Glo',
-            '9MOBILE' => '9mobile',
-            'ETISALAT' => '9mobile', // Legacy name
-        ];
+        // Check if code exists in config
+        if (isset($networkCodeMap[$code])) {
+            $network = $networkCodeMap[$code];
+            
+            // If null (sandbox code), try phone number detection
+            if ($network === null && $phoneNumber) {
+                return $this->detectNetworkProvider($phoneNumber);
+            }
+            
+            return $network;
+        }
         
-        return $networkMap[$normalizedNetwork] ?? $normalizedNetwork;
+        // Unknown code - try phone number detection as fallback
+        if ($phoneNumber) {
+            $detectedNetwork = $this->detectNetworkProvider($phoneNumber);
+            if ($detectedNetwork) {
+                Log::info('Network normalization: Unknown code, using phone detection', [
+                    'unknown_code' => $code,
+                    'detected' => $detectedNetwork,
+                ]);
+                return $detectedNetwork;
+            }
+        }
+        
+        Log::warning('Network normalization: Unknown code from AfricasTalking', [
+            'network_code' => $code,
+        ]);
+        
+        return null;
     }
 
     /**
@@ -254,8 +271,7 @@ class GatewayCostService
     public function recordGatewayCost(USSDSession $session, ?string $networkProvider = null): bool
     {
         try {
-            // Only record costs for production/live sessions
-            // Testing sessions don't incur real gateway costs
+            
             $environment = $session->environment?->name ?? EnvironmentType::TESTING->value;
             if ($environment !== EnvironmentType::PRODUCTION->value) {
                 Log::info('Skipping gateway cost recording for non-production session', [

@@ -179,9 +179,9 @@ class USSDGatewayController extends Controller
             $phoneNumber = $request->input('phoneNumber') ?? $request->input('phone_number');
             $serviceCode = $request->input('serviceCode') ?? $request->input('service_code');
             $status = $request->input('status') ?? $request->input('sessionStatus');
-            $duration = $request->input('duration') ?? $request->input('sessionDuration');
+            $duration = $request->input('durationInMillis') ?? $request->input('duration') ?? $request->input('sessionDuration');
             $actualCost = $request->input('cost') ?? $request->input('sessionCost'); // Actual cost charged by AfricasTalking
-            $network = $request->input('network') ?? $request->input('networkCode');
+            $networkCode = $request->input('networkCode') ?? $request->input('network'); // networkCode is the numeric code (e.g., "62130" for MTN Nigeria)
             $errorMessage = $request->input('errorMessage') ?? $request->input('error_message');
 
             // Find the session by AfricasTalking session ID
@@ -215,17 +215,19 @@ class USSDGatewayController extends Controller
                         $updateData['error_message'] = $errorMessage;
                     }
 
-                    if ($network) {
+
+                    if ($networkCode || $phoneNumber) {
                         $gatewayCostService = app(\App\Services\GatewayCostService::class);
-                        $updateData['network_provider'] = $gatewayCostService->normalizeNetworkName($network);
+                        $normalizedNetwork = $gatewayCostService->normalizeNetworkCode($networkCode, $phoneNumber);
+                        if ($normalizedNetwork) {
+                            $updateData['network_provider'] = $normalizedNetwork;
+                        }
                     }
 
                     // Update gateway cost with ACTUAL cost from AfricasTalking (if provided)
                     if ($actualCost !== null && is_numeric($actualCost) && $actualCost >= 0) {
                         $gatewayCostService = app(\App\Services\GatewayCostService::class);
-                        
-                        // Convert cost to smallest unit (kobo for NGN)
-                        // AfricasTalking usually sends cost in main currency (NGN)
+ 
                         $currency = $session->gateway_cost_currency ?? config('app.currency', 'NGN');
                         $costInSmallestUnit = $gatewayCostService->convertToSmallestUnit((float)$actualCost, $currency);
                         
@@ -240,6 +242,27 @@ class USSDGatewayController extends Controller
                                 'estimated_cost' => $estimatedCost,
                                 'actual_cost' => $actualCost,
                                 'difference' => $actualCost - $estimatedCost,
+                            ]);
+                        }
+                    } elseif (!$session->gateway_cost || $session->gateway_cost == 0) {
+                        // If webhook doesn't provide cost AND session has no gateway cost recorded,
+                        // recalculate and record it based on current network
+                        $gatewayCostService = app(\App\Services\GatewayCostService::class);
+                        $currentNetwork = $updateData['network_provider'] ?? $session->network_provider;
+                        
+                        if ($currentNetwork) {
+                            // Recalculate gateway cost based on detected network
+                            $costData = $gatewayCostService->calculateGatewayCost($session, $currentNetwork);
+                            $updateData['gateway_cost'] = $costData['cost'];
+                            $updateData['gateway_cost_currency'] = $costData['currency'];
+                            $updateData['gateway_provider'] = $costData['provider'];
+                            $updateData['network_provider'] = $costData['network'];
+                            $updateData['gateway_cost_recorded_at'] = now();
+                            
+                            Log::info('Gateway cost recalculated from webhook event (no cost provided by AT)', [
+                                'session_id' => $session->id,
+                                'network' => $currentNetwork,
+                                'calculated_cost' => $costData['cost'],
                             ]);
                         }
                     }
@@ -257,7 +280,8 @@ class USSDGatewayController extends Controller
                         'status' => $status,
                         'duration' => $duration,
                         'actual_cost_from_at' => $actualCost,
-                        'network' => $network,
+                        'network_code' => $networkCode,
+                        'network_provider' => $updateData['network_provider'] ?? $session->network_provider,
                     ]);
 
                     // Mark webhook event as processed
@@ -305,8 +329,6 @@ class USSDGatewayController extends Controller
                 $webhookEvent->markAsFailed($errorMessage);
             }
 
-            // Still return 200 to prevent AfricasTalking from retrying
-            // Log the error for manual investigation
             return response()->json([
                 'status' => 'error',
                 'message' => 'Event received but processing failed'

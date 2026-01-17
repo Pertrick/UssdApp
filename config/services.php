@@ -57,6 +57,17 @@ return [
         
         // Monthly setup/maintenance fee (if applicable)
         'monthly_fee' => env('AFRICASTALKING_MONTHLY_FEE', 20000.0), // NGN per month for dedicated code
+        
+        // Network code mapping: AfricasTalking numeric codes to network names
+        'network_codes' => [
+            // Nigeria
+            '62130' => 'MTN',
+            '62120' => 'Airtel',
+            '62150' => 'Glo',
+            '62160' => '9mobile',
+            
+            '99999' => null, // Athena sandbox -
+        ],
     ],
 
     'paystack' => [
