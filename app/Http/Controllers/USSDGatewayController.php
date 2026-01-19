@@ -224,17 +224,14 @@ class USSDGatewayController extends Controller
                         }
                     }
 
-                    // Update gateway cost with ACTUAL cost from AfricasTalking (if provided)
                     if ($actualCost !== null && is_numeric($actualCost) && $actualCost >= 0) {
                         $gatewayCostService = app(\App\Services\GatewayCostService::class);
  
                         $currency = $session->gateway_cost_currency ?? config('app.currency', 'NGN');
                         $costInSmallestUnit = $gatewayCostService->convertToSmallestUnit((float)$actualCost, $currency);
                         
-                        // Update gateway cost with actual cost from AfricasTalking
                         $updateData['gateway_cost'] = $costInSmallestUnit;
                         
-                        // Log if there's a discrepancy with our estimated cost
                         if ($session->gateway_cost && $session->gateway_cost !== $costInSmallestUnit) {
                             $estimatedCost = $gatewayCostService->convertFromSmallestUnit($session->gateway_cost, $currency);
                             Log::warning('Gateway cost discrepancy detected', [

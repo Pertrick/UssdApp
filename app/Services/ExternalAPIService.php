@@ -275,48 +275,149 @@ class ExternalAPIService
      */
     private function getNestedValue(array $array, string $path)
     {
-        // Split path into top-level key and nested path
+        // Strategy 1: Direct path resolution using Laravel's data_get (handles dot notation and nested arrays)
+        $value = data_get($array, $path, null);
+        if ($value !== null) {
+            return $value;
+        }
+        
+        // Strategy 2: Split path and try resolving from top-level key
         $pathParts = explode('.', $path, 2);
         $topLevelKey = $pathParts[0];
         
-        // If top-level key exists in context, resolve from there first
         if (isset($array[$topLevelKey])) {
             if (count($pathParts) === 1) {
                 // Simple key (e.g., 'selected_item_data' without dot notation)
                 return $array[$topLevelKey];
             }
             
-            // Nested path (e.g., 'selected_item_data.name')
+            // Nested path (e.g., 'selected_item_data.name' or 'session.data.coded')
             $nestedPath = $pathParts[1];
             $value = data_get($array[$topLevelKey], $nestedPath, null);
             
-            // If found in context, return it
             if ($value !== null) {
                 return $value;
             }
-        }
-        
-        // Fallback: Try direct navigation through the array structure
-        $keys = explode('.', $path);
-        $value = $array;
-        
-        foreach ($keys as $key) {
-            if (!isset($value[$key])) {
-                // Fallback: For static flows, try direct access to session.data
-                // This allows {amount} to work instead of requiring {session.data.amount}
-                if (count($keys) === 1 && isset($array['session']['data'][$path])) {
-                    return $array['session']['data'][$path];
+            
+            // Strategy 3: For session.data.* paths, try multiple fallback locations
+            // This is generic and doesn't hardcode specific field names
+            if ($topLevelKey === 'session' && str_starts_with($nestedPath, 'data.')) {
+                $fieldPath = substr($nestedPath, 5); // Remove 'data.' prefix
+                $sessionData = $array['session']['data'] ?? [];
+                
+                if (empty($sessionData)) {
+                    return null;
                 }
-                // Also try selected_item_data for dynamic flows
-                if (count($keys) === 1 && isset($array['selected_item_data'][$path])) {
-                    return $array['selected_item_data'][$path];
+                
+                // Try multiple nested locations using data_get with wildcards
+                $fallbackPaths = [
+                    $fieldPath, // Direct access: session.data.field
+                    "selected_item_data.{$fieldPath}", // In selected_item_data
+                    "collected_inputs.{$fieldPath}", // In collected_inputs
+                    "api_response.{$fieldPath}", // In api_response
+                ];
+                
+                // Also try if fieldPath itself contains dots (nested field)
+                // For example: if fieldPath is "user.profile.amount", also try direct access to "user.profile.amount"
+                foreach ($fallbackPaths as $fallbackPath) {
+                    $value = data_get($sessionData, $fallbackPath, null);
+                    if ($value !== null) {
+                        return $value;
+                    }
                 }
-                return null;
+                
+                // Try searching recursively in all top-level array values (deep search)
+                foreach ($sessionData as $key => $subArray) {
+                    if (is_array($subArray)) {
+                        // First try direct path
+                        $value = data_get($subArray, $fieldPath, null);
+                        if ($value !== null) {
+                            return $value;
+                        }
+                        
+                        // If fieldPath contains dots (nested), try recursive search
+                        if (str_contains($fieldPath, '.')) {
+                            $value = $this->recursiveSearch($subArray, $fieldPath);
+                            if ($value !== null) {
+                                return $value;
+                            }
+                        } else {
+                            // For simple field names, search recursively in all nested arrays
+                            $value = $this->recursiveSearch($subArray, $fieldPath);
+                            if ($value !== null) {
+                                return $value;
+                            }
+                        }
+                    }
+                }
             }
-            $value = $value[$key];
         }
         
-        return $value;
+        // Strategy 4: Try simple field name at top level (for backward compatibility)
+        $keys = explode('.', $path);
+        if (count($keys) === 1) {
+            // Single key - try direct access
+            if (isset($array[$path])) {
+                return $array[$path];
+            }
+            
+            // Try in common top-level locations
+            $topLevelLocations = ['session.data', 'selected_item_data', 'input'];
+            foreach ($topLevelLocations as $location) {
+                $value = data_get($array, "{$location}.{$path}", null);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Recursively search for a field in nested arrays
+     */
+    private function recursiveSearch(array $array, string $fieldPath): mixed
+    {
+        // Split fieldPath to get the target field name (last segment)
+        $pathParts = explode('.', $fieldPath);
+        $targetField = end($pathParts);
+        
+        // If we're looking for a simple field name, search recursively
+        if (count($pathParts) === 1) {
+            // Check current level
+            if (isset($array[$targetField])) {
+                return $array[$targetField];
+            }
+            
+            // Recursively search in all nested arrays
+            foreach ($array as $value) {
+                if (is_array($value)) {
+                    $result = $this->recursiveSearch($value, $targetField);
+                    if ($result !== null) {
+                        return $result;
+                    }
+                }
+            }
+        } else {
+            // For nested paths, try data_get first
+            $value = data_get($array, $fieldPath, null);
+            if ($value !== null) {
+                return $value;
+            }
+            
+            // Then recursively search in nested arrays
+            foreach ($array as $value) {
+                if (is_array($value)) {
+                    $result = $this->recursiveSearch($value, $fieldPath);
+                    if ($result !== null) {
+                        return $result;
+                    }
+                }
+            }
+        }
+        
+        return null;
     }
 
     /**

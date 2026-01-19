@@ -256,9 +256,48 @@ class USSDSessionService
             $inputPrompt = $sessionData['input_prompt'] ?? null;
 
             if ($isCollectingInput && $inputType) {
-                // We're collecting input, validate and process it
-                // For input collection, use the full input (not just last part)
+        
                 return $this->handleInputCollection($session, $input, $inputType, $inputPrompt);
+            }
+            
+            $lastApiError = $sessionData['last_api_error'] ?? null;
+            $inErrorFlow = $sessionData['in_error_flow'] ?? false;
+            $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+            $lastInputFlowId = $sessionData['last_input_flow_id'] ?? null;
+            
+            
+            if ($inErrorFlow && $lastApiError && $lastInputType && $lastInputFlowId && !empty($input) && empty($lastSelection)) {
+                // Clear the old input value so new input can be collected
+                $inputFieldNames = [$lastInputType, str_replace('input_', '', $lastInputType)];
+                foreach ($inputFieldNames as $fieldName) {
+                    unset($sessionData[$fieldName]);
+                    unset($sessionData['collected_inputs'][$fieldName]);
+                    unset($sessionData['selected_item_data'][$fieldName]);
+                }
+                
+                // Find the input option that collected this field before
+                $inputFlow = USSDFlow::find($lastInputFlowId);
+                if ($inputFlow) {
+                    $inputOption = USSDFlowOption::where('flow_id', $inputFlow->id)
+                        ->where('action_type', $lastInputType)
+                        ->where('is_active', true)
+                        ->first();
+                    
+                    if ($inputOption) {
+                        $session->update(['current_flow_id' => $inputFlow->id]);
+                        $sessionData['collecting_input'] = true;
+                        $sessionData['input_type'] = $lastInputType;
+                        $sessionData['input_prompt'] = $inputOption->action_data['prompt'] ?? $this->getDefaultPrompt($lastInputType, $inputOption->option_text);
+                        $sessionData['input_action_data'] = $inputOption->action_data ?? [];
+                        $sessionData['in_error_flow'] = false;
+                        unset($sessionData['error_flow_id']);
+                        $session->update(['session_data' => $sessionData]);
+                        
+                        $this->logSessionAction($session, 'input_retry_after_api_error', $input, "Re-prompting for {$lastInputType} to retry failed API call", 'info');
+                        
+                        return $this->handleInputCollection($session, $input, $lastInputType, $sessionData['input_prompt']);
+                    }
+                }
             }
 
             // If input is empty (first request), just show the current flow menu
@@ -334,29 +373,79 @@ class USSDSessionService
                     $sessionData['input_retries'] = [];
                 }
                 $sessionData['input_retries'][$retryKey] = ($sessionData['input_retries'][$retryKey] ?? 0) + 1;
+                
+                // If there was an input collection before this API call, allow retry by re-prompting for that input
+                // This handles cases where the API error might be due to incorrect input (PIN, password, account number, etc.)
+                $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+                $lastInputFlowId = $sessionData['last_input_flow_id'] ?? $sessionData['previous_flow_id'] ?? null;
+                
+                if ($lastInputType && $lastInputFlowId) {
+                    // Clear the old input value (common field names)
+                    $inputFieldNames = [$lastInputType, str_replace('input_', '', $lastInputType)];
+                    foreach ($inputFieldNames as $fieldName) {
+                        unset($sessionData[$fieldName]);
+                        unset($sessionData['collected_inputs'][$fieldName]);
+                        unset($sessionData['collected_inputs'][$lastInputType]);
+                        unset($sessionData['selected_item_data'][$fieldName]);
+                        unset($sessionData['selected_item_data'][$lastInputType]);
+                    }
+                    
+                    // Try to find the input option that collected this field
+                    $inputFlow = USSDFlow::find($lastInputFlowId);
+                    
+                    if ($inputFlow) {
+                        // Find input action option by the stored input type
+                        $inputOption = USSDFlowOption::where('flow_id', $inputFlow->id)
+                            ->where('action_type', $lastInputType)
+                            ->where('is_active', true)
+                            ->first();
+                        
+                        if ($inputOption) {
+                            $session->update(['session_data' => $sessionData]);
+                            $this->logSessionAction($session, 'api_retry_with_new_input', $lastSelection, "Re-prompting for {$lastInputType} to retry failed API call", 'info');
+                            
+                            // Navigate back to input collection flow to re-prompt for input
+                            $session->update(['current_flow_id' => $inputFlow->id]);
+                            return $this->handleInputRequest($session, $inputOption);
+                        }
+                    }
+                }
+                
                 $session->update(['session_data' => $sessionData]);
                 
-                // Restore original flow and retry the API call
-                $originalFlowId = $lastApiError['flow_id'] ?? null;
+                // Get original flow and option to retry
+                $originalFlowId = $lastApiError['flow_id'] ?? $session->current_flow_id; // Fallback to current flow if not set
                 $originalOptionId = $lastApiError['option_id'] ?? null;
                 
-                if ($originalFlowId && $originalOptionId) {
-                    $originalFlow = USSDFlow::find($originalFlowId);
+                // If we have option ID, use it; otherwise try to find option by value in current/original flow
+                if ($originalOptionId) {
                     $originalOption = USSDFlowOption::find($originalOptionId);
-                    
-                    if ($originalFlow && $originalOption && $originalFlow->is_active && $originalOption->is_active) {
-                        // Clear error state
-                        unset($sessionData['in_error_flow']);
-                        unset($sessionData['error_flow_id']);
-                        $session->update([
-                            'current_flow_id' => $originalFlowId,
-                            'session_data' => $sessionData
-                        ]);
-                        
-                        // Retry the API call
-                        $this->logSessionAction($session, 'api_retry', $lastSelection, "Retrying failed API call (attempt " . ($retryCount + 1) . ")", 'info');
-                        return $this->handleAction($session, $originalOption);
+                    $originalFlow = $originalOption ? USSDFlow::find($originalOption->flow_id) : null;
+                } else {
+                    // Fallback: find option by value in the original/current flow
+                    $originalFlow = USSDFlow::find($originalFlowId);
+                    if ($originalFlow) {
+                        $originalOption = USSDFlowOption::where('flow_id', $originalFlow->id)
+                            ->where('option_value', $lastSelection)
+                            ->where('is_active', true)
+                            ->first();
+                    } else {
+                        $originalOption = null;
                     }
+                }
+                
+                if ($originalFlow && $originalOption && $originalFlow->is_active && $originalOption->is_active) {
+                    // Clear error state
+                    unset($sessionData['in_error_flow']);
+                    unset($sessionData['error_flow_id']);
+                    $session->update([
+                        'current_flow_id' => $originalFlow->id,
+                        'session_data' => $sessionData
+                    ]);
+                    
+                    // Retry the API call with existing input (for non-credential errors or if we couldn't find input flow)
+                    $this->logSessionAction($session, 'api_retry', $lastSelection, "Retrying failed API call (attempt " . ($retryCount + 1) . ")", 'info');
+                    return $this->handleAction($session, $originalOption);
                 }
             }
             
@@ -1516,6 +1605,10 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         // This allows user to retry by selecting the same option again
         $currentFlow = $session->currentFlow;
         if ($currentFlow) {
+            // Set error flow flag to enable retry logic
+            $sessionData['in_error_flow'] = true;
+            $session->update(['session_data' => $sessionData]);
+            
             $menuText = $this->replacePlaceholdersWithApiAndSessionData($currentFlow->menu_text, [], $sessionData);
             $fullMessage = $errorMessage . "\n\n" . $menuText;
             
@@ -1844,6 +1937,10 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         }
         
         $sessionData['collecting_input'] = false;
+        // Store last input info before clearing (for retry on credential errors)
+        $sessionData['last_input_type_before_api'] = $inputType;
+        $sessionData['last_input_action_data'] = $actionData;
+        $sessionData['last_input_flow_id'] = $session->current_flow_id;
         $sessionData['input_type'] = null;
         $sessionData['input_prompt'] = null;
         $sessionData['input_action_data'] = null;
