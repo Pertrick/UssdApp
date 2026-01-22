@@ -241,6 +241,17 @@
         >
         <label :for="'end-session-' + index" class="text-sm text-gray-700">End session after API call</label>
       </div>
+      
+      <div v-if="option.action_type === 'external_api_call' && option.action_data?.api_configuration_id && !option.action_data?.end_session_after_api && (option.action_data?.success_flow_id || option.next_flow_id)" class="flex items-center gap-2">
+        <input 
+          type="checkbox" 
+          :checked="option.action_data?.continue_without_display || false" 
+          @change="updateActionData('continue_without_display', $event.target.checked)"
+          :id="'continue-without-display-' + index" 
+          class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+        >
+        <label :for="'continue-without-display-' + index" class="text-sm text-gray-700">Continue to next flow without displaying API response</label>
+      </div>
     </div>
     
     <button 
@@ -486,6 +497,7 @@ const handleAfterInputActionChange = (event) => {
       updateActionData('success_flow_id', '')
       updateActionData('error_flow_id', '')
       updateActionData('end_session_after_api', false)
+      updateActionData('continue_without_display', false)
       break
     case 'navigate':
       updateOption('next_flow_id', '')

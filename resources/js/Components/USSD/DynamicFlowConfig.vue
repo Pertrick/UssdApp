@@ -164,11 +164,24 @@
             />
             <span class="ml-2 text-sm text-gray-700">Let API response determine next step</span>
           </label>
+          <label class="flex items-center">
+            <input 
+              type="radio" 
+              :value="dynamicConfig.continuation_type" 
+              @change="updateConfig('continuation_type', 'continue_without_display')"
+              :checked="dynamicConfig.continuation_type === 'continue_without_display'"
+              class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+            />
+            <span class="ml-2 text-sm text-gray-700">Continue to next flow without displaying options</span>
+          </label>
         </div>
+        <p class="mt-2 text-xs text-yellow-700">
+          <strong>Continue without display:</strong> API is called, response is stored, and user is automatically navigated to the next flow. Useful for validation flows where you don't need to show a menu.
+        </p>
       </div>
 
-      <!-- Next Flow Selection (for continue option) -->
-      <div v-if="dynamicConfig.continuation_type === 'continue'">
+      <!-- Next Flow Selection (for continue options) -->
+      <div v-if="dynamicConfig.continuation_type === 'continue' || dynamicConfig.continuation_type === 'continue_without_display'">
         <label class="block text-sm font-medium text-gray-700 mb-2">Next Flow</label>
         <select 
           :value="dynamicConfig.next_flow_id" 

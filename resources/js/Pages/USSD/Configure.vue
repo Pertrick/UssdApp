@@ -287,6 +287,21 @@ const selectFlow = (flow) => {
             }
             // Don't overwrite valid objects or arrays - they might contain important data
             
+            // Ensure api_configuration_id is a string (for proper dropdown matching)
+            if (option.action_data && 'api_configuration_id' in option.action_data) {
+                option.action_data.api_configuration_id = String(option.action_data.api_configuration_id)
+            }
+            
+            // Ensure success_flow_id is a string (for proper dropdown matching)
+            if (option.action_data && 'success_flow_id' in option.action_data) {
+                option.action_data.success_flow_id = String(option.action_data.success_flow_id)
+            }
+            
+            // Ensure continue_without_display is a boolean if it exists
+            if (option.action_data && 'continue_without_display' in option.action_data) {
+                option.action_data.continue_without_display = Boolean(option.action_data.continue_without_display)
+            }
+            
             // Handle end_session_after_input flag for display
             if (option.action_data && option.action_data.end_session_after_input) {
                 option.next_flow_id = 'end_session'
@@ -411,12 +426,24 @@ const saveFlow = async () => {
     flowErrors.value = {}
     
     try {
+        // Deep clone to ensure we're sending the actual current state with all action_data fields
+        const optionsToSend = (selectedFlow.value.options || []).map(option => {
+            const optionCopy = { ...option }
+            // Ensure action_data is properly included with all fields
+            if (option.action_data && typeof option.action_data === 'object') {
+                optionCopy.action_data = { ...option.action_data }
+            } else {
+                optionCopy.action_data = option.action_data || {}
+            }
+            return optionCopy
+        })
+        
         const requestData = {
             name: selectedFlow.value.name,
             title: selectedFlow.value.title || '',
             menu_text: selectedFlow.value.menu_text,
             description: selectedFlow.value.description || '',
-            options: selectedFlow.value.options || [],
+            options: optionsToSend,
             flow_type: selectedFlow.value.flow_type || 'static',
             dynamic_config: selectedFlow.value.dynamic_config || {}
         }
@@ -447,6 +474,7 @@ const saveFlow = async () => {
             
             // Convert the saved flow data for UI display (handle end_session_after_input flag)
             const convertedFlow = JSON.parse(JSON.stringify(result.flow))
+            
             if (convertedFlow.options) {
                 convertedFlow.options.forEach(option => {
                     // Handle action_data - only initialize if null or not an object
@@ -457,6 +485,21 @@ const saveFlow = async () => {
                         option.action_data = {}
                     }
                     // Don't overwrite valid objects - they might contain important data
+                    
+                    // Ensure api_configuration_id is a string (for proper dropdown matching)
+                    if (option.action_data && 'api_configuration_id' in option.action_data) {
+                        option.action_data.api_configuration_id = String(option.action_data.api_configuration_id)
+                    }
+                    
+                    // Ensure success_flow_id is a string (for proper dropdown matching)
+                    if (option.action_data && 'success_flow_id' in option.action_data) {
+                        option.action_data.success_flow_id = String(option.action_data.success_flow_id)
+                    }
+                    
+                    // Ensure continue_without_display is a boolean if it exists
+                    if (option.action_data && 'continue_without_display' in option.action_data) {
+                        option.action_data.continue_without_display = Boolean(option.action_data.continue_without_display)
+                    }
                     
                     // Handle end_session_after_input flag for display
                     if (option.action_data && option.action_data.end_session_after_input) {
@@ -637,6 +680,7 @@ const updateActionData = (index, key, value) => {
         if (!selectedFlow.value.options[index].action_data) {
             selectedFlow.value.options[index].action_data = {}
         }
+        // Use Vue's reactive setter to ensure reactivity
         selectedFlow.value.options[index].action_data[key] = value
     }
 }

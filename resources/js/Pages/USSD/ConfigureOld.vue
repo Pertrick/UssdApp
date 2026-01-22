@@ -326,11 +326,23 @@
                       />
                       <span class="ml-2 text-sm text-gray-700">Let API response determine next step</span>
                     </label>
+                    <label class="flex items-center">
+                      <input 
+                        type="radio" 
+                        v-model="selectedFlow.dynamic_config.continuation_type" 
+                        value="continue_without_display"
+                        class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                      />
+                      <span class="ml-2 text-sm text-gray-700">Continue to next flow without displaying options</span>
+                    </label>
                   </div>
+                  <p class="mt-2 text-xs text-yellow-700">
+                    <strong>Continue without display:</strong> API is called, response is stored, and user is automatically navigated to the next flow. Useful for validation flows where you don't need to show a menu.
+                  </p>
                 </div>
 
-                <!-- Next Flow Selection (for continue option) -->
-                <div v-if="selectedFlow.dynamic_config.continuation_type === 'continue'">
+                <!-- Next Flow Selection (for continue options) -->
+                <div v-if="selectedFlow.dynamic_config.continuation_type === 'continue' || selectedFlow.dynamic_config.continuation_type === 'continue_without_display'">
                   <label class="block text-sm font-medium text-gray-700 mb-2">Next Flow</label>
                   <select 
                     v-model="selectedFlow.dynamic_config.next_flow_id" 
@@ -509,6 +521,11 @@
                   <div class="flex items-center gap-2">
                     <input type="checkbox" v-model="option.action_data.end_session_after_api" id="end-session-{{ idx }}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
                     <label for="end-session-{{ idx }}" class="text-sm text-gray-700">End session after API call</label>
+                  </div>
+                  
+                  <div v-if="option.action_type === 'external_api_call' && option.action_data && option.action_data.api_configuration_id && !option.action_data.end_session_after_api && (option.action_data.success_flow_id || option.next_flow_id)" class="flex items-center gap-2">
+                    <input type="checkbox" v-model="option.action_data.continue_without_display" :id="'continue-without-display-' + idx" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                    <label :for="'continue-without-display-' + idx" class="text-sm text-gray-700">Continue to next flow without displaying API response</label>
                   </div>
                 </div>
                 
@@ -842,11 +859,23 @@
                     />
                     <span class="ml-2 text-sm text-gray-700">Let API response determine next step</span>
                   </label>
+                  <label class="flex items-center">
+                    <input 
+                      type="radio" 
+                      v-model="flowForm.dynamic_config.continuation_type" 
+                      value="continue_without_display"
+                      class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                    />
+                    <span class="ml-2 text-sm text-gray-700">Continue to next flow without displaying options</span>
+                  </label>
                 </div>
+                <p class="mt-2 text-xs text-yellow-700">
+                  <strong>Continue without display:</strong> API is called, response is stored, and user is automatically navigated to the next flow. Useful for validation flows where you don't need to show a menu.
+                </p>
               </div>
 
-              <!-- Next Flow Selection (for continue option) -->
-              <div v-if="flowForm.dynamic_config.continuation_type === 'continue'">
+              <!-- Next Flow Selection (for continue options) -->
+              <div v-if="flowForm.dynamic_config.continuation_type === 'continue' || flowForm.dynamic_config.continuation_type === 'continue_without_display'">
                 <label class="block text-sm font-medium text-gray-700 mb-2">Next Flow</label>
                 <select 
                   v-model="flowForm.dynamic_config.next_flow_id" 
@@ -1022,14 +1051,52 @@ const selectFlow = (flow) => {
     
     if (clonedFlow.options) {
         clonedFlow.options.forEach(option => {
-            // Handle action_data - convert arrays to objects and ensure it's an object
-            if (option.action_data === null) {
+            // Preserve continue_without_display before processing action_data
+            const preservedContinueWithoutDisplay = option.action_data?.continue_without_display
+            
+            // Handle action_data - ensure it's an object (preserve existing data)
+            if (option.action_data === null || option.action_data === undefined) {
                 option.action_data = {}
+            } else if (typeof option.action_data === 'string') {
+                // If it's a string, try to parse it as JSON
+                try {
+                    option.action_data = JSON.parse(option.action_data)
+                } catch (e) {
+                    option.action_data = {}
+                }
             } else if (Array.isArray(option.action_data)) {
-                // Convert array to object if it's an array
+                // Convert array to object if it's an array (preserve data if possible)
+                const arr = option.action_data
                 option.action_data = {}
+                // Try to preserve array data as object if it has key-value pairs
+                arr.forEach((item, index) => {
+                    if (typeof item === 'object' && item !== null) {
+                        Object.assign(option.action_data, item)
+                    } else {
+                        option.action_data[index] = item
+                    }
+                })
             } else if (typeof option.action_data !== 'object') {
                 option.action_data = {}
+            }
+            
+            // Restore continue_without_display if it was preserved
+            if (preservedContinueWithoutDisplay !== undefined && !('continue_without_display' in option.action_data)) {
+                option.action_data.continue_without_display = preservedContinueWithoutDisplay
+            }
+            
+            // Ensure continue_without_display is a boolean (preserve existing value)
+            if (option.action_data) {
+                if (option.action_data.continue_without_display === undefined || option.action_data.continue_without_display === null) {
+                    // If not set, default to false (but don't overwrite if it exists)
+                    if (!('continue_without_display' in option.action_data)) {
+                        option.action_data.continue_without_display = false
+                    }
+                } else if (typeof option.action_data.continue_without_display !== 'boolean') {
+                    // Convert string/other types to boolean
+                    option.action_data.continue_without_display = option.action_data.continue_without_display === true || option.action_data.continue_without_display === 'true' || option.action_data.continue_without_display === 1
+                }
+                // If it's already a boolean, leave it as is
             }
             
             // Handle end_session_after_input flag for display
@@ -1160,16 +1227,33 @@ const saveFlow = async () => {
     flowErrors.value = {}
     
     try {
+        // Ensure all options have properly initialized action_data before sending
+        const optionsToSend = (selectedFlow.value.options || []).map(option => {
+            const optionCopy = { ...option }
+            // Ensure action_data is an object
+            if (!optionCopy.action_data || typeof optionCopy.action_data !== 'object' || Array.isArray(optionCopy.action_data)) {
+                optionCopy.action_data = optionCopy.action_data && !Array.isArray(optionCopy.action_data) ? { ...optionCopy.action_data } : {}
+            }
+            // Ensure boolean values are preserved
+            if (optionCopy.action_data.continue_without_display !== undefined) {
+                optionCopy.action_data.continue_without_display = Boolean(optionCopy.action_data.continue_without_display)
+            }
+            if (optionCopy.action_data.end_session_after_api !== undefined) {
+                optionCopy.action_data.end_session_after_api = Boolean(optionCopy.action_data.end_session_after_api)
+            }
+            return optionCopy
+        })
+        
         const requestData = {
             name: selectedFlow.value.name,
             title: selectedFlow.value.title || '',
             menu_text: selectedFlow.value.menu_text,
             description: selectedFlow.value.description || '',
-            options: selectedFlow.value.options || [],
+            options: optionsToSend,
             flow_type: selectedFlow.value.flow_type || 'static',
             dynamic_config: selectedFlow.value.dynamic_config || {}
         }
-        console.log('Sending PUT request with data:', requestData)
+        console.log('Sending PUT request with data:', JSON.stringify(requestData, null, 2))
         
         const response = await fetch(`/ussd/${props.ussd.id}/flows/${selectedFlow.value.id}`, {
             method: 'PUT',
@@ -1189,6 +1273,7 @@ const saveFlow = async () => {
         }
         
         const result = await response.json()
+        console.log('Received response from server:', JSON.stringify(result, null, 2))
         
         if (result.success) {
             // Update the flow in the flows array
@@ -1197,16 +1282,52 @@ const saveFlow = async () => {
             
             // Convert the saved flow data for UI display (handle end_session_after_input flag)
             const convertedFlow = JSON.parse(JSON.stringify(result.flow))
+            console.log('Converted flow options before processing:', convertedFlow.options?.map(opt => ({
+                option_text: opt.option_text,
+                action_type: opt.action_type,
+                action_data: opt.action_data,
+                continue_without_display: opt.action_data?.continue_without_display
+            })))
             if (convertedFlow.options) {
                 convertedFlow.options.forEach(option => {
-                    // Handle action_data - convert arrays to objects and ensure it's an object
-                    if (option.action_data === null) {
+                    // Handle action_data - ensure it's an object (preserve existing data)
+                    if (option.action_data === null || option.action_data === undefined) {
                         option.action_data = {}
+                    } else if (typeof option.action_data === 'string') {
+                        // If it's a string, try to parse it as JSON
+                        try {
+                            option.action_data = JSON.parse(option.action_data)
+                        } catch (e) {
+                            option.action_data = {}
+                        }
                     } else if (Array.isArray(option.action_data)) {
-                        // Convert array to object if it's an array
+                        // Convert array to object if it's an array (preserve data if possible)
+                        const arr = option.action_data
                         option.action_data = {}
+                        // Try to preserve array data as object if it has key-value pairs
+                        arr.forEach((item, index) => {
+                            if (typeof item === 'object' && item !== null) {
+                                Object.assign(option.action_data, item)
+                            } else {
+                                option.action_data[index] = item
+                            }
+                        })
                     } else if (typeof option.action_data !== 'object') {
                         option.action_data = {}
+                    }
+                    
+                    // Ensure continue_without_display is a boolean (preserve existing value)
+                    if (option.action_data) {
+                        if (option.action_data.continue_without_display === undefined || option.action_data.continue_without_display === null) {
+                            // If not set, default to false (but don't overwrite if it exists)
+                            if (!('continue_without_display' in option.action_data)) {
+                                option.action_data.continue_without_display = false
+                            }
+                        } else if (typeof option.action_data.continue_without_display !== 'boolean') {
+                            // Convert string/other types to boolean
+                            option.action_data.continue_without_display = option.action_data.continue_without_display === true || option.action_data.continue_without_display === 'true' || option.action_data.continue_without_display === 1
+                        }
+                        // If it's already a boolean, leave it as is
                     }
                     
                     // Handle end_session_after_input flag for display
@@ -1218,6 +1339,16 @@ const saveFlow = async () => {
             
             selectedFlow.value = convertedFlow
             originalFlow.value = JSON.parse(JSON.stringify(convertedFlow))
+            
+            // Debug: Log the final state
+            console.log('Final selectedFlow options:', selectedFlow.value.options?.map(opt => ({
+                option_text: opt.option_text,
+                action_type: opt.action_type,
+                action_data: opt.action_data,
+                continue_without_display: opt.action_data?.continue_without_display,
+                end_session_after_api: opt.action_data?.end_session_after_api,
+                success_flow_id: opt.action_data?.success_flow_id
+            })))
         } else {
             flowErrors.value = result.errors || {}
         }
@@ -1404,6 +1535,7 @@ const handleAfterInputActionChange = (option) => {
             option.action_data.success_flow_id = option.action_data.success_flow_id || ''
             option.action_data.error_flow_id = option.action_data.error_flow_id || ''
             option.action_data.end_session_after_api = option.action_data.end_session_after_api || false
+            option.action_data.continue_without_display = option.action_data.continue_without_display || false
             break
         case 'navigate':
             option.next_flow_id = option.next_flow_id || ''

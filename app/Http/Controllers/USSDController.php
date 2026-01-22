@@ -270,8 +270,9 @@ class USSDController extends Controller
                 'dynamic_config.label_field' => 'nullable|string|max:100',
                 'dynamic_config.value_field' => 'nullable|string|max:100',
                 'dynamic_config.empty_message' => 'nullable|string|max:500',
-                'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent',
-                'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id',
+                
+                'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent,continue_without_display',
+                'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id|required_if:dynamic_config.continuation_type,continue_without_display',
                 'dynamic_config.items_per_page' => 'nullable|integer|min:3|max:20',
                 'dynamic_config.next_label' => 'nullable|string|max:20',
                 'dynamic_config.back_label' => 'nullable|string|max:20',
@@ -281,6 +282,9 @@ class USSDController extends Controller
                 'name.max' => 'Flow name cannot exceed 255 characters.',
                 'title.max' => 'Title cannot exceed 255 characters.',
                 'description.max' => 'Description cannot exceed 500 characters.',
+                'dynamic_config.continuation_type.in' => 'The selected continuation type is invalid.',
+                'dynamic_config.next_flow_id.required_if' => 'Next flow is required when continuation type is "Continue without display".',
+                'dynamic_config.next_flow_id.exists' => 'The selected next flow does not exist.',
             ]);
 
             // Check for duplicate flow names within the same USSD
@@ -379,6 +383,13 @@ class USSDController extends Controller
             'options.*.action_data.success_message' => 'nullable|string|max:500',
             'options.*.action_data.store_data' => 'nullable|array',
             'options.*.action_data.store_data.*' => 'nullable',
+            'options.*.action_data.api_configuration_id' => 'nullable|string',
+            'options.*.action_data.end_session_after_api' => 'nullable|boolean',
+            'options.*.action_data.success_flow_id' => 'nullable|string',
+            'options.*.action_data.error_flow_id' => 'nullable|string',
+            'options.*.action_data.continue_without_display' => 'nullable|boolean',
+            'options.*.action_data.after_input_action' => 'nullable|string',
+            'options.*.action_data.process_type' => 'nullable|string',
             'options.*.next_flow_id' => 'nullable',
         ], [
             'name.required' => 'Flow name is required.',
@@ -397,6 +408,9 @@ class USSDController extends Controller
             'options.*.action_data.prompt.max' => 'Prompt cannot exceed 200 characters.',
             'options.*.action_data.error_message.max' => 'Error message cannot exceed 200 characters.',
             'options.*.next_flow_id.exists' => 'Selected flow does not exist.',
+            'dynamic_config.continuation_type.in' => 'The selected continuation type is invalid.',
+            'dynamic_config.next_flow_id.required_if' => 'Next flow is required when continuation type is "Continue without display".',
+            'dynamic_config.next_flow_id.exists' => 'The selected next flow does not exist.',
         ]);
 
         // Validate and auto-generate option_text
@@ -509,11 +523,11 @@ class USSDController extends Controller
                  if ($optionData['next_flow_id'] === 'end_session') {
                      // Store end_session flag in action_data instead of next_flow_id
                      $actionData['end_session_after_input'] = true;
-                 } else {
-                     $nextFlowId = $optionData['next_flow_id'] ?? null;
-                 }
-                 
-                 $flow->options()->create([
+                } else {
+                    $nextFlowId = $optionData['next_flow_id'] ?? null;
+                }
+                
+                $flow->options()->create([
                      'option_text' => $optionData['option_text'],
                      'option_value' => $optionData['option_value'],
                      'action_type' => $optionData['action_type'],

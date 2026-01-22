@@ -302,6 +302,20 @@ class USSDSessionService
 
             // If input is empty (first request), just show the current flow menu
             if (empty($input) || trim($input) === '') {
+                // IMPORTANT: If we're retrying input after API error and collecting_input is set,
+                // show the input prompt again instead of processing the flow menu
+                if ($isCollectingInput && isset($sessionData['retrying_input_after_api_error']) && $sessionData['retrying_input_after_api_error']) {
+                    return [
+                        'success' => true,
+                        'message' => $inputPrompt ?? 'Please enter your input:',
+                        'flow_title' => $currentFlow->title,
+                        'flow_description' => $currentFlow->description,
+                        'requires_input' => true,
+                        'current_flow' => $currentFlow,
+                        'input_type' => $inputType,
+                    ];
+                }
+                
                 // For dynamic flows, process the flow to get the menu
                 if ($currentFlow->flow_type === 'dynamic') {
                     return $this->processDynamicFlow($session, $currentFlow);
@@ -572,11 +586,6 @@ class USSDSessionService
      */
     public function getCurrentFlowDisplay(USSDSession $session): array
     {
-        Log::info('getCurrentFlowDisplay called', [
-            'session_id' => $session->id,
-            'current_flow_id' => $session->current_flow_id
-        ]);
-        
         $currentFlow = $session->currentFlow;
         
         if (!$currentFlow) {
@@ -591,14 +600,6 @@ class USSDSessionService
             ];
         }
         
-        Log::info('Current flow found', [
-            'session_id' => $session->id,
-            'flow_id' => $currentFlow->id,
-            'flow_type' => $currentFlow->flow_type,
-            'flow_title' => $currentFlow->title,
-            'flow_name' => $currentFlow->name
-        ]);
-        
         // Check if this is a dynamic flow
         if ($currentFlow->flow_type === 'dynamic') {
             // Check if we already have cached API data for pagination
@@ -609,30 +610,15 @@ class USSDSessionService
             if (isset($sessionData['cached_api_data']) && 
                 isset($sessionData['dynamic_options']) && 
                 $cachedFlowId === $currentFlow->id) {
-                Log::info('Using cached data for pagination', [
-                    'session_id' => $session->id,
-                    'flow_id' => $currentFlow->id,
-                    'cached_flow_id' => $cachedFlowId
-                ]);
                 // Use cached data for pagination - no need to make another API call
                 return $this->regenerateDynamicFlowFromCache($session, $currentFlow);
             }
             
-            Log::info('No cache found or cache belongs to different flow, making API call', [
-                'session_id' => $session->id,
-                'flow_id' => $currentFlow->id,
-                'cached_flow_id' => $cachedFlowId,
-                'cache_exists' => isset($sessionData['cached_api_data'])
-            ]);
             // First time, no cache, or cache belongs to different flow - make API call
             return $this->processDynamicFlow($session, $currentFlow);
         }
         
         // Handle static flow (existing logic)
-        Log::info('Static flow detected', [
-            'session_id' => $session->id,
-            'flow_id' => $currentFlow->id
-        ]);
         
         // Check if this flow has ONLY input actions - if so, auto-trigger the first one
         // This provides better UX: if all options are inputs, skip the menu and go straight to input
@@ -648,13 +634,6 @@ class USSDSessionService
             
             if ($allAreInputActions) {
                 $firstOption = $options->first();
-                Log::info('Auto-triggering input collection for input-only flow', [
-                    'session_id' => $session->id,
-                    'flow_id' => $currentFlow->id,
-                    'option_id' => $firstOption->id,
-                    'action_type' => $firstOption->action_type,
-                    'total_options' => $options->count()
-                ]);
                 return $this->handleInputRequest($session, $firstOption);
             }
         }
@@ -691,9 +670,101 @@ class USSDSessionService
         // Store the dynamic options and cache the API data in session for pagination
         // Key the cache by flow_id to prevent cross-flow cache contamination
         $sessionData = $session->session_data ?? [];
+        $continuationType = $result['continuation_type'] ?? 'continue';
+        $nextFlowId = $result['next_flow_id'] ?? null;
+        
+        // Handle continue without display - skip display and navigate directly
+        if ($continuationType === 'continue_without_display') {
+            // Validate that next_flow_id is configured
+            if (!$nextFlowId) {
+                Log::warning('continue_without_display requires next_flow_id', [
+                    'session_id' => $session->id,
+                    'flow_id' => $flow->id,
+                    'flow_name' => $flow->name
+                ]);
+                
+                return [
+                    'success' => false,
+                    'message' => 'Configuration error: Next flow must be specified for "Continue without display" option.',
+                    'flow_title' => $flow->title ?? $flow->name ?? 'Menu',
+                    'flow_description' => $flow->description,
+                    'requires_input' => false,
+                    'current_flow' => $flow,
+                ];
+            }
+            
+            // Store API response data (similar to handleApiCallSuccess)
+            $cachedApiData = $result['cached_api_data'] ?? null;
+            
+            if ($cachedApiData) {
+                // Store API response in structured way for easy access
+                $sessionData['api_response'] = $cachedApiData;
+                $sessionData['last_api_result'] = [
+                    'success' => true,
+                    'data' => $cachedApiData
+                ];
+                
+                // Extract scalar fields from API response to top-level session_data
+                foreach ($cachedApiData as $key => $value) {
+                    if (is_scalar($value) || is_null($value)) {
+                        if (!isset($sessionData[$key])) {
+                            $sessionData[$key] = $value;
+                        }
+                        $sessionData['api_' . $key] = $value;
+                    }
+                }
+            }
+            
+            // Navigate to next flow
+            $nextFlow = USSDFlow::find($nextFlowId);
+            if (!$nextFlow || !$nextFlow->is_active) {
+                Log::warning('Next flow not found or inactive for continue_without_display', [
+                    'session_id' => $session->id,
+                    'flow_id' => $flow->id,
+                    'next_flow_id' => $nextFlowId,
+                    'flow_exists' => $nextFlow !== null,
+                    'flow_active' => $nextFlow ? $nextFlow->is_active : false
+                ]);
+                
+                return [
+                    'success' => false,
+                    'message' => 'Configuration error: The specified next flow is not available.',
+                    'flow_title' => $flow->title ?? $flow->name ?? 'Menu',
+                    'flow_description' => $flow->description,
+                    'requires_input' => false,
+                    'current_flow' => $flow,
+                ];
+            }
+            
+            // Update session with stored API data and navigate to next flow
+            $session->update(['current_flow_id' => $nextFlow->id, 'session_data' => $sessionData]);
+            $session->refresh();
+            $sessionData = $session->session_data ?? [];
+            
+            // Log the silent navigation
+            $this->logSessionAction($session, 'dynamic_flow_silent_continue', null, "Navigated from flow {$flow->id} to {$nextFlowId} without displaying options", 'success');
+            
+            // Replace placeholders in menu text with API response and session data
+            $menuText = $this->replacePlaceholdersWithApiAndSessionData(
+                $nextFlow->menu_text,
+                $cachedApiData ?? [],
+                $sessionData
+            );
+            
+            return [
+                'success' => true,
+                'message' => $menuText,
+                'flow_title' => $nextFlow->title,
+                'requires_input' => true,
+                'current_flow' => $nextFlow,
+                'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
+            ];
+        }
+        
+        // Normal dynamic flow display (existing logic)
         $sessionData['dynamic_options'] = $result['options'] ?? [];
-        $sessionData['dynamic_continuation_type'] = $result['continuation_type'] ?? 'continue';
-        $sessionData['dynamic_next_flow_id'] = $result['next_flow_id'] ?? null;
+        $sessionData['dynamic_continuation_type'] = $continuationType;
+        $sessionData['dynamic_next_flow_id'] = $nextFlowId;
         $sessionData['cached_api_data'] = $result['cached_api_data'] ?? null; // Cache the raw API data
         $sessionData['cached_flow_id'] = $flow->id; // Store which flow this cache belongs to
         $session->update(['session_data' => $sessionData]);
@@ -726,24 +797,9 @@ class USSDSessionService
      */
     private function regenerateDynamicFlowFromCache(USSDSession $session, USSDFlow $flow): array
     {
-        Log::info('regenerateDynamicFlowFromCache called', [
-            'session_id' => $session->id,
-            'flow_id' => $flow->id,
-            'flow_title' => $flow->title,
-            'flow_name' => $flow->name
-        ]);
-        
         $sessionData = $session->session_data ?? [];
         $cachedApiData = $sessionData['cached_api_data'] ?? null;
         $dynamicConfig = $flow->dynamic_config ?? [];
-        
-        Log::info('Cache data check', [
-            'session_id' => $session->id,
-            'flow_id' => $flow->id,
-            'has_cached_api_data' => !is_null($cachedApiData),
-            'cached_api_data_type' => gettype($cachedApiData),
-            'dynamic_config' => $dynamicConfig
-        ]);
         
         if (!$cachedApiData) {
             Log::warning('No cached API data found, falling back to API call', [
@@ -754,22 +810,9 @@ class USSDSessionService
             return $this->processDynamicFlow($session, $flow);
         }
         
-        Log::info('About to format API response to options', [
-            'session_id' => $session->id,
-            'flow_id' => $flow->id,
-            'cached_api_data_sample' => is_array($cachedApiData) ? array_slice($cachedApiData, 0, 2) : $cachedApiData
-        ]);
-        
         // Use cached data to regenerate options with current page
         $dynamicProcessor = app(DynamicFlowProcessor::class);
         $options = $dynamicProcessor->formatApiResponseToOptions($cachedApiData, $dynamicConfig, $session);
-        
-        Log::info('Options generated from cache', [
-            'session_id' => $session->id,
-            'flow_id' => $flow->id,
-            'options_count' => count($options),
-            'options_sample' => array_slice($options, 0, 3)
-        ]);
         
         // Update the dynamic options in session
         $sessionData['dynamic_options'] = $options;
@@ -791,13 +834,6 @@ class USSDSessionService
             $emptyMsg = $sanitizationService->sanitizeOutput($dynamicConfig['empty_message'] ?? 'No options available', 200);
             $message .= "\n" . $emptyMsg;
         }
-        
-        Log::info('regenerateDynamicFlowFromCache completed successfully', [
-            'session_id' => $session->id,
-            'flow_id' => $flow->id,
-            'message_length' => strlen($message),
-            'flow_title' => $flowTitle
-        ]);
         
         return [
             'success' => true,
@@ -861,6 +897,7 @@ class USSDSessionService
                 
                 // Continue with normal processing of the selected option
                 // (will fall through to the rest of the function)
+                
             }
         }
         
@@ -875,20 +912,7 @@ class USSDSessionService
         
         // Handle pagination navigation
         if ($selectedOption && in_array($selectedOption['value'], ['PAGINATION_NEXT', 'PAGINATION_BACK'])) {
-            Log::info('Pagination navigation detected', [
-                'session_id' => $session->id,
-                'flow_id' => $flow->id,
-                'selected_option' => $selectedOption,
-                'input' => $input
-            ]);
-            
             $newPage = $selectedOption['data']['page'] ?? 1;
-            
-            Log::info('Updating session with new page', [
-                'session_id' => $session->id,
-                'new_page' => $newPage,
-                'current_session_data' => $sessionData
-            ]);
             
             // Update session data with new page
             $sessionData['current_page'] = $newPage;
@@ -897,20 +921,9 @@ class USSDSessionService
             // Log pagination action
             $this->logSessionAction($session, 'pagination', $input, "Page {$newPage}");
             
-            Log::info('About to call getCurrentFlowDisplay', [
-                'session_id' => $session->id,
-                'flow_id' => $flow->id,
-                'updated_session_data' => $sessionData
-            ]);
-            
             // Regenerate the dynamic flow display with new page
             try {
                 $flowDisplay = $this->getCurrentFlowDisplay($session);
-                
-                Log::info('getCurrentFlowDisplay successful', [
-                    'session_id' => $session->id,
-                    'flow_display' => $flowDisplay
-                ]);
                 
                 return [
                     'success' => true,
@@ -1334,8 +1347,7 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             $result = $externalApiService->executeApiCall($apiConfig, $session, $userInput);
             
             if (!$result['success']) {
-                // Pass the result array to error handler instead of throwing exception
-                // This allows access to extracted error messages and API response data
+
                 return $this->handleApiCallError($session, $option, null, $result);
             }
             
@@ -1393,6 +1405,21 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $sessionData = $session->session_data ?? [];
         $sessionData['last_api_result'] = $result;
         
+        $apiResponseData = $result['data'] ?? [];
+        $sessionData['api_response'] = $apiResponseData;
+        
+        // Similar to how selected_item_data fields are extracted
+        foreach ($apiResponseData as $key => $value) {
+            if (is_scalar($value) || is_null($value)) {
+ 
+                if (!isset($sessionData[$key])) {
+                    $sessionData[$key] = $value;
+                }
+                
+                $sessionData['api_' . $key] = $value;
+            }
+        }
+        
         // Reset retry count on successful API call
         $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
         if (isset($sessionData['input_retries'][$retryKey])) {
@@ -1426,19 +1453,61 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             ];
         } else {
             // Continue to next flow if specified
-            $nextFlowId = $option->next_flow_id;
+            // Check both next_flow_id (direct) and success_flow_id (from action_data) for compatibility
+            $nextFlowId = $option->next_flow_id ?? $apiData['success_flow_id'] ?? null;
+            $continueWithoutDisplay = $apiData['continue_without_display'] ?? false;
+            
             if ($nextFlowId) {
                 $nextFlow = USSDFlow::find($nextFlowId);
-                if ($nextFlow && $nextFlow->is_active) {
-                    $session->update(['current_flow_id' => $nextFlow->id]);
+                if (!$nextFlow || !$nextFlow->is_active) {
+                    // Next flow not found or inactive - end session
+                    Log::warning('Next flow not found or inactive for external API call', [
+                        'session_id' => $session->id,
+                        'current_flow_id' => $session->current_flow_id,
+                        'next_flow_id' => $nextFlowId,
+                        'flow_exists' => $nextFlow !== null,
+                        'flow_active' => $nextFlow ? $nextFlow->is_active : false
+                    ]);
                     
-                    // Replace placeholders in menu text with both API response data and session data
-                    $sessionData = $session->session_data ?? [];
-                    $menuText = $this->replacePlaceholdersWithApiAndSessionData($nextFlow->menu_text, $result['data'], $sessionData);
+                    $this->completeSession($session);
+                    return [
+                        'success' => false,
+                        'message' => 'Configuration error: The specified next flow is not available.',
+                        'requires_input' => false,
+                        'session_ended' => true,
+                    ];
+                }
+                
+                // Update session to next flow
+                $session->update(['current_flow_id' => $nextFlow->id]);
+                
+                // Refresh session data after update
+                $session->refresh();
+                $sessionData = $session->session_data ?? [];
+                
+                // Replace placeholders in menu text with both API response data and session data
+                $menuText = $this->replacePlaceholdersWithApiAndSessionData($nextFlow->menu_text, $result['data'], $sessionData);
+                
+                if ($continueWithoutDisplay) {
+                    // Silent navigation - don't display API message (matches dynamic flow behavior)
+                    $this->logSessionAction($session, 'api_call_silent_continue', null, "Navigated from flow {$session->current_flow_id} to {$nextFlowId} without displaying API response", 'success');
                     
                     return [
                         'success' => true,
                         'message' => $menuText,
+                        'flow_title' => $nextFlow->title,
+                        'requires_input' => true,
+                        'current_flow' => $nextFlow,
+                        'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
+                    ];
+                } else {
+                    // Default behavior: Show API message followed by next flow menu (backward compatible)
+                    $apiMessage = $result['message'] ?? 'Operation completed successfully.';
+                    $fullMessage = $apiMessage . "\n\n" . $menuText;
+                    
+                    return [
+                        'success' => true,
+                        'message' => $fullMessage,
                         'flow_title' => $nextFlow->title,
                         'requires_input' => true,
                         'current_flow' => $nextFlow,
@@ -1550,6 +1619,81 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             'api_data' => $apiErrorData,
         ]);
         
+        // PRIORITY 1: Check if there was an input collection before this API call
+        // This should take precedence over error flows or dynamic flow retries
+        // If user entered any input (PIN, text, number, phone, account, amount, etc.) 
+        // and API failed with non-critical error, they should be able to re-enter the input
+        $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+        $lastInputFlowId = $sessionData['last_input_flow_id'] ?? null;
+        $lastInputActionData = $sessionData['last_input_action_data'] ?? [];
+        
+        if ($lastInputType && $lastInputFlowId) {
+            // Clear the old input value (handle all possible field names)
+            // Input can be stored with different names: input_type, store_as value, or field name
+            $inputFieldNames = [
+                $lastInputType, // e.g., input_pin
+                str_replace('input_', '', $lastInputType), // e.g., pin
+            ];
+            
+            // Also check if there was a custom store_as field
+            if (isset($lastInputActionData['store_as']) && !empty($lastInputActionData['store_as'])) {
+                $inputFieldNames[] = $lastInputActionData['store_as'];
+            }
+            
+            // Remove duplicates
+            $inputFieldNames = array_unique($inputFieldNames);
+            
+            foreach ($inputFieldNames as $fieldName) {
+                unset($sessionData[$fieldName]);
+                unset($sessionData['collected_inputs'][$fieldName]);
+                unset($sessionData['selected_item_data'][$fieldName]);
+            }
+            
+            // Find the input flow and option
+            $inputFlow = USSDFlow::find($lastInputFlowId);
+            if ($inputFlow) {
+                $inputOption = $inputFlow->options()
+                    ->where('action_type', $lastInputType)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if ($inputOption) {
+                    // Set up retry flag and navigate back to input flow
+                    $sessionData['retrying_input_after_api_error'] = true;
+                    $sessionData['collecting_input'] = true;
+                    $sessionData['input_type'] = $lastInputType;
+                    $inputPrompt = $inputOption->action_data['prompt'] ?? $this->getDefaultPrompt($lastInputType, $inputOption->option_text);
+                    $sessionData['input_prompt'] = $inputPrompt;
+                    $sessionData['input_action_data'] = $inputOption->action_data ?? [];
+                    $sessionData['in_error_flow'] = false;
+                    unset($sessionData['error_flow_id']);
+                    $session->update(['session_data' => $sessionData, 'current_flow_id' => $inputFlow->id]);
+                    
+                    $inputTypeLabel = str_replace(['input_', '_'], ['', ' '], $lastInputType);
+                    $this->logSessionAction($session, 'input_retry_after_api_error', null, "Re-prompting for {$inputTypeLabel} ({$lastInputType}) to retry failed API call", 'info');
+                    
+                    // Get error message from API result or session data
+                    // $apiErrorMessage is already extracted from $apiResult at the top of this method
+                    $errorMessage = $apiErrorMessage ?? $sessionData['api_error_message'] ?? $sessionData['error_message'] ?? 'An error occurred. Please try again.';
+                    
+                    // Build message with error and prompt
+                    $fullMessage = $errorMessage . "\n\n" . $inputPrompt;
+                    
+                    // Return directly with error message and prompt, ensuring collecting_input is set
+                    return [
+                        'success' => true,
+                        'message' => $fullMessage,
+                        'flow_title' => $inputFlow->title,
+                        'flow_description' => $inputFlow->description,
+                        'requires_input' => true,
+                        'current_flow' => $inputFlow,
+                        'input_type' => $lastInputType,
+                    ];
+                }
+            }
+        }
+        
+        // PRIORITY 2: Check for configured error flow
         $errorFlowId = $apiData['error_flow_id'] ?? null;
         
         if ($errorFlowId) {
@@ -1572,6 +1716,7 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             }
         }
         
+        // PRIORITY 3: Check if API error came from dynamic flow selection
         $previousFlowId = $sessionData['previous_flow_id'] ?? null;
         $lastDynamicSelection = $sessionData['last_dynamic_selection_index'] ?? null;
         
@@ -1951,6 +2096,27 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
 
         $nextFlowId = $sessionData['next_flow_after_input'] ?? null;
         $endSessionAfterInput = $actionData['end_session_after_input'] ?? false;
+        $afterInputAction = $actionData['after_input_action'] ?? null;
+        
+        // Check if we need to trigger an API call after input collection
+        if ($afterInputAction === 'api_call' || $afterInputAction === 'external_api_call') {
+            $apiConfigId = $actionData['api_configuration_id'] ?? null;
+            
+            if ($apiConfigId) {
+                // Create a temporary option to trigger the API call
+                $tempOption = new USSDFlowOption();
+                $tempOption->action_type = $afterInputAction;
+                $tempOption->next_flow_id = $nextFlowId;
+                $tempOption->action_data = [
+                    'api_configuration_id' => $apiConfigId,
+                    'end_session_after_api' => $actionData['end_session_after_api'] ?? false,
+                    'next_flow_id' => $nextFlowId,
+                ];
+                
+                // Trigger the API call
+                return $this->handleApiCall($session, $tempOption);
+            }
+        }
         
         if ($endSessionAfterInput) {
             // End session after input collection
@@ -1970,7 +2136,6 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                 $sessionData['next_flow_after_input'] = null;
                 $session->update(['session_data' => $sessionData]);
                 
-                // Replace placeholders in menu text with session data
                 $menuText = $this->replacePlaceholders($nextFlow->menu_text, $sessionData);
                 
                 return [
