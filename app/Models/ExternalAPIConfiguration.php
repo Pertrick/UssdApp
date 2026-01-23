@@ -29,6 +29,8 @@ class ExternalAPIConfiguration extends Model
         'request_mapping',
         'request_template',
         'response_mapping',
+        'data_path',
+        'error_path',
         'success_criteria',
         'error_handling',
         'is_active',

@@ -106,6 +106,8 @@ class IntegrationController extends Controller
             'headers' => 'array',
             'request_mapping' => 'array',
             'response_mapping' => 'array',
+            'data_path' => 'nullable|string|max:255',
+            'error_path' => 'nullable|string|max:255',
             'success_criteria' => 'array',
             'error_handling' => 'array',
         ]);
@@ -178,6 +180,8 @@ class IntegrationController extends Controller
             'headers' => 'array',
             'request_mapping' => 'array',
             'response_mapping' => 'array',
+            'data_path' => 'nullable|string|max:255',
+            'error_path' => 'nullable|string|max:255',
             'success_criteria' => 'array',
             'error_handling' => 'array',
         ]);

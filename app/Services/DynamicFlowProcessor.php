@@ -25,6 +25,15 @@ class DynamicFlowProcessor
     {
         $dynamicConfig = $flow->dynamic_config ?? [];
         
+        // Debug: Log the raw dynamic_config to see what we're working with
+        Log::info('DynamicFlowProcessor: Raw dynamic_config', [
+            'flow_id' => $flow->id,
+            'dynamic_config' => $dynamicConfig,
+            'next_flow_id_raw' => $dynamicConfig['next_flow_id'] ?? 'not_set',
+            'next_flow_id_type' => gettype($dynamicConfig['next_flow_id'] ?? null),
+            'continuation_type' => $dynamicConfig['continuation_type'] ?? 'not_set'
+        ]);
+        
         if (empty($dynamicConfig['api_configuration_id'])) {
             return [
                 'success' => false,
@@ -58,34 +67,67 @@ class DynamicFlowProcessor
                 ];
             }
             
-            // Format API response into menu options
-            // Handle both direct array responses and wrapped responses
-            $responseData = $apiResponse['data'] ?? $apiResponse;
-            
-            // If the response data is empty but we have raw_response, use that
-            if (empty($responseData) && isset($apiResponse['raw_response']['body'])) {
-                $responseData = $apiResponse['raw_response']['body'];
+            // Get the full API response body (don't assume 'data' key exists)
+            // This preserves the entire response structure for template variables
+            $fullResponseData = null;
+            if (isset($apiResponse['raw_response']['body'])) {
+                $rawBody = $apiResponse['raw_response']['body'];
+                // Ensure it's an array for consistent handling
+                if (is_array($rawBody)) {
+                    $fullResponseData = $rawBody;
+                } else {
+                    // If raw body is not an array (string, number, etc.), wrap it
+                    $fullResponseData = ['value' => $rawBody, 'data' => $rawBody];
+                }
+            } else {
+                // Fallback: use apiResponse structure (could be direct response or wrapped)
+                if (is_array($apiResponse)) {
+                    $fullResponseData = $apiResponse;
+                } else {
+                    // If apiResponse is not an array, wrap it
+                    $fullResponseData = ['value' => $apiResponse, 'data' => $apiResponse];
+                }
             }
+            
+            // formatApiResponseToOptions will use list_path from dynamic_config to extract
+            // the specific array/object for generating options
+            $options = $this->formatApiResponseToOptions(
+                $fullResponseData,
+                $dynamicConfig,
+                $session
+            );
             
             // Debug logging
             Log::info('Dynamic Flow Processing Debug', [
                 'flow_id' => $flow->id,
                 'api_response' => $apiResponse,
-                'response_data' => $responseData,
+                'full_response_data' => $fullResponseData,
                 'dynamic_config' => $dynamicConfig,
-                'list_path' => $dynamicConfig['list_path'] ?? 'data'
+                'list_path' => $dynamicConfig['list_path'] ?? 'data',
+                'options_count' => count($options)
             ]);
-            
-            $options = $this->formatApiResponseToOptions(
-                $responseData,
-                $dynamicConfig,
-                $session
-            );
             
             Log::info('Dynamic Flow Options Generated', [
                 'flow_id' => $flow->id,
                 'options_count' => count($options),
                 'options' => $options
+            ]);
+            
+            // Normalize next_flow_id - handle string values from JSON storage
+            $nextFlowId = $dynamicConfig['next_flow_id'] ?? null;
+            if ($nextFlowId === '' || $nextFlowId === '0') {
+                $nextFlowId = null;
+            } else if ($nextFlowId !== null && $nextFlowId !== '') {
+                $nextFlowId = (int) $nextFlowId; // Ensure it's an integer
+            }
+            
+            // Log for debugging
+            Log::info('DynamicFlowProcessor: next_flow_id normalization', [
+                'flow_id' => $flow->id,
+                'raw_next_flow_id' => $dynamicConfig['next_flow_id'] ?? 'not_set',
+                'normalized_next_flow_id' => $nextFlowId,
+                'continuation_type' => $dynamicConfig['continuation_type'] ?? 'not_set',
+                'options_count' => count($options)
             ]);
             
             if (empty($options)) {
@@ -95,7 +137,8 @@ class DynamicFlowProcessor
                 'message' => $dynamicConfig['empty_message'] ?? 'No options available',
                 'options' => [],
                 'continuation_type' => $dynamicConfig['continuation_type'] ?? 'continue',
-                'cached_api_data' => $responseData // Cache the API response data
+                'next_flow_id' => $nextFlowId,
+                'cached_api_data' => $fullResponseData // Store full response for template variables
             ];
             }
             
@@ -104,8 +147,8 @@ class DynamicFlowProcessor
                 'title' => $flow->title,
                 'options' => $options,
                 'continuation_type' => $dynamicConfig['continuation_type'] ?? 'continue',
-                'next_flow_id' => $dynamicConfig['next_flow_id'] ?? null,
-                'cached_api_data' => $responseData // Cache the API response data for pagination
+                'next_flow_id' => $nextFlowId,
+                'cached_api_data' => $fullResponseData // Store full response for template variables
             ];
             
         } catch (\Exception $e) {

@@ -171,7 +171,13 @@ class AfricasTalkingService
             $messageText = trim($message);
             
             // Only prepend if title is not already in the message
-            if (!empty($title) && !str_contains($messageText, $title)) {
+            // Check both the processed title and a substring match (in case of formatting differences)
+            $titleInMessage = !empty($title) && (
+                str_contains($messageText, $title) || 
+                str_starts_with($messageText, substr($title, 0, min(50, strlen($title))))
+            );
+            
+            if (!empty($title) && !$titleInMessage) {
                 $message = $title . "\n" . $messageText;
             }
         }

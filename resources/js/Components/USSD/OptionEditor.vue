@@ -112,31 +112,69 @@
       </select>
       
       <!-- Marketplace API selection -->
-      <div v-if="option.action_data?.after_input_action === 'external_api_call'" class="flex gap-2">
+      <div v-if="option.action_data?.after_input_action === 'external_api_call'" class="space-y-2">
+        <div class="flex gap-2">
+          <select 
+            :value="option.action_data?.api_configuration_id" 
+            @change="updateActionData('api_configuration_id', $event.target.value)"
+            class="flex-1 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+          >
+            <option value="">Select API Integration</option>
+            <optgroup label="Marketplace APIs">
+              <option v-for="api in marketplaceApis" :key="api.id" :value="api.id">
+                {{ api.name }} ({{ api.provider_name }})
+              </option>
+            </optgroup>
+            <optgroup label="Custom APIs">
+              <option v-for="api in customApis" :key="api.id" :value="api.id">
+                {{ api.name }}
+              </option>
+            </optgroup>
+          </select>
+          <button 
+            @click="$emit('open-api-wizard', option)" 
+            type="button" 
+            class="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"
+          >
+            Configure
+          </button>
+        </div>
+        
+        <!-- Next flow after API call -->
         <select 
-          :value="option.action_data?.api_configuration_id" 
-          @change="updateActionData('api_configuration_id', $event.target.value)"
-          class="flex-1 min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+          v-if="option.action_data?.api_configuration_id"
+          :value="option.action_data?.success_flow_id || option.next_flow_id" 
+          @change="handleSuccessFlowChangeAfterInput"
+          class="w-full min-w-0 rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"
         >
-          <option value="">Select API Integration</option>
-          <optgroup label="Marketplace APIs">
-            <option v-for="api in marketplaceApis" :key="api.id" :value="api.id">
-              {{ api.name }} ({{ api.provider_name }})
-            </option>
-          </optgroup>
-          <optgroup label="Custom APIs">
-            <option v-for="api in customApis" :key="api.id" :value="api.id">
-              {{ api.name }}
-            </option>
-          </optgroup>
+          <option value="">Select next flow after API call</option>
+          <option v-for="flow in availableFlows" :key="flow.id" :value="flow.id">{{ flow.name }}</option>
         </select>
-        <button 
-          @click="$emit('open-api-wizard', option)" 
-          type="button" 
-          class="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"
-        >
-          Configure
-        </button>
+        
+        <!-- Options for API call behavior -->
+        <div v-if="option.action_data?.api_configuration_id" class="space-y-2">
+          <div class="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              :checked="option.action_data?.end_session_after_api || false" 
+              @change="updateActionData('end_session_after_api', $event.target.checked)"
+              :id="'end-session-after-input-' + index" 
+              class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+            >
+            <label :for="'end-session-after-input-' + index" class="text-sm text-gray-700">End session after API call</label>
+          </div>
+          
+          <div v-if="!option.action_data?.end_session_after_api && (option.action_data?.success_flow_id || option.next_flow_id)" class="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              :checked="option.action_data?.continue_without_display || false" 
+              @change="updateActionData('continue_without_display', $event.target.checked)"
+              :id="'continue-without-display-after-input-' + index" 
+              class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+            >
+            <label :for="'continue-without-display-after-input-' + index" class="text-sm text-gray-700">Continue to next flow without displaying API response</label>
+          </div>
+        </div>
       </div>
       
       <!-- Process data options -->
@@ -506,6 +544,13 @@ const handleAfterInputActionChange = (event) => {
       updateActionData('process_type', 'process_registration')
       break
   }
+}
+
+const handleSuccessFlowChangeAfterInput = (event) => {
+  const value = event.target.value
+  // Update both success_flow_id (for API calls) and next_flow_id (for compatibility)
+  updateActionData('success_flow_id', value)
+  updateOption('next_flow_id', value)
 }
 
 const handleApiSelection = (event) => {

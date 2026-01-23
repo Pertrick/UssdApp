@@ -226,12 +226,12 @@
                         </div>
 
                         <!-- Request/Response Mapping -->
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="space-y-8">
                             <!-- Request Mapping -->
-                            <div>
+                            <div class="block">
                                 <h4 class="text-md font-medium text-gray-900 mb-4">Request Mapping</h4>
                                 <div class="space-y-3">
-                                    <div v-for="(mapping, index) in form.request_mapping" :key="index" class="flex space-x-3">
+                                    <div v-for="(mapping, index) in form.request_mapping" :key="mapping.id || index" class="flex space-x-3">
                                         <input
                                             v-model="mapping.key"
                                             type="text"
@@ -246,8 +246,8 @@
                                         />
                                         <button
                                             type="button"
-                                            @click="removeRequestMapping(index)"
-                                            class="px-3 py-2 text-red-600 hover:text-red-800"
+                                            @click.prevent="removeRequestMapping(index)"
+                                            class="px-3 py-2 text-red-600 hover:text-red-800 cursor-pointer"
                                         >
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -268,7 +268,7 @@
                             </div>
 
                             <!-- Response Mapping -->
-                            <div>
+                            <div class="block">
                                 <h4 class="text-md font-medium text-gray-900 mb-4">Response Mapping</h4>
                                 <div class="space-y-3">
                                     <div v-for="(mapping, index) in form.response_mapping" :key="index" class="flex space-x-3">
@@ -304,6 +304,43 @@
                                         </svg>
                                         Add Mapping
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- API Response Configuration -->
+                        <div>
+                            <h4 class="text-md font-medium text-gray-900 mb-4">API Response Configuration</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Data Path (Optional)
+                                    </label>
+                                    <input
+                                        v-model="form.data_path"
+                                        type="text"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="data (default) or response.data or body.result"
+                                    />
+                                    <p class="mt-1 text-xs text-gray-500">
+                                        Specify the path to extract data from API response. Supports dot notation (e.g., "response.data"). 
+                                        If empty, will use list_path from dynamic flow config, or fallback to "data".
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Error Path (Optional)
+                                    </label>
+                                    <input
+                                        v-model="form.error_path"
+                                        type="text"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="error.message (default) or error or message"
+                                    />
+                                    <p class="mt-1 text-xs text-gray-500">
+                                        Specify the path to extract error messages from API response. Supports dot notation (e.g., "error.message"). 
+                                        If empty, will try common paths like "message", "error", "error_message".
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -415,6 +452,8 @@ const form = useForm({
     headers: [],
     request_mapping: [],
     response_mapping: [],
+    data_path: '',
+    error_path: '',
     success_criteria: []
 });
 
@@ -427,11 +466,17 @@ const removeHeader = (index) => {
 };
 
 const addRequestMapping = () => {
-    form.request_mapping.push({ key: '', value: '' });
+    form.request_mapping.push({ 
+        id: Date.now() + Math.random(), 
+        key: '', 
+        value: '' 
+    });
 };
 
 const removeRequestMapping = (index) => {
-    form.request_mapping.splice(index, 1);
+    if (index >= 0 && index < form.request_mapping.length) {
+        form.request_mapping = form.request_mapping.filter((_, i) => i !== index);
+    }
 };
 
 const addResponseMapping = () => {

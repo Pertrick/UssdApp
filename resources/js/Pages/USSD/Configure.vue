@@ -361,22 +361,26 @@ const addOption = () => {
     }
     
     // Calculate next option_value and sort_order based on existing options
-    let nextValue = '1'
+    // Start numbering from 0
+    let nextValue = '0'
     let nextSortOrder = 1
     
     if (selectedFlow.value.options.length > 0) {
-        // Find max numeric option_value (handle both string and number, skip '0' for Exit)
+        // Find max numeric option_value (including 0)
         const values = selectedFlow.value.options
             .map(opt => {
                 const val = opt.option_value
-                if (!val || val === '') return 0
+                if (!val || val === '') return -1
                 const num = parseInt(val)
-                return isNaN(num) ? 0 : num
+                return isNaN(num) ? -1 : num
             })
-            .filter(v => v > 0) // Exclude 0 (Exit option) and invalid values
+            .filter(v => v >= 0) // Include 0 and positive values
         
         if (values.length > 0) {
             nextValue = (Math.max(...values) + 1).toString()
+        } else {
+            // If no valid values found, use the array length (which will be 0 for first item)
+            nextValue = selectedFlow.value.options.length.toString()
         }
         nextSortOrder = selectedFlow.value.options.length + 1
     }
@@ -687,21 +691,14 @@ const updateActionData = (index, key, value) => {
 
 // Auto-sync function: Generate menu_text from options (one-way: options → menu_text)
 // Menu text is now read-only and auto-generated from options
+// Respects user's order and starts numbering from 0
 const handleOptionChange = () => {
     if (!selectedFlow.value || !selectedFlow.value.options) return
     
-    // Generate menu text from options, using option_value if available
+    // Generate menu text from options in the order they appear (no sorting)
+    // Respect the user's arrangement
     const validOptions = selectedFlow.value.options
         .filter(option => option.option_text && option.option_text.trim())
-        .sort((a, b) => {
-            // Sort by sort_order if available, otherwise by option_value
-            if (a.sort_order !== undefined && b.sort_order !== undefined) {
-                return a.sort_order - b.sort_order
-            }
-            const aVal = parseInt(a.option_value) || 0
-            const bVal = parseInt(b.option_value) || 0
-            return aVal - bVal
-        })
     
     if (validOptions.length === 0) {
         selectedFlow.value.menu_text = ''
@@ -709,13 +706,13 @@ const handleOptionChange = () => {
     }
     
     let menuText = ''
-    validOptions.forEach((option) => {
+    validOptions.forEach((option, index) => {
         if (menuText) menuText += '\n'
         
-        // Use option_value if it exists and is not empty, otherwise use index + 1
+        // Use option_value if it exists and is not empty, otherwise use index (starting from 0)
         const displayNumber = option.option_value && option.option_value.toString().trim() !== ''
             ? option.option_value
-            : (validOptions.indexOf(option) + 1)
+            : index
         
         menuText += `${displayNumber}. ${option.option_text}`
     })

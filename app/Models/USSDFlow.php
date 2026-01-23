@@ -56,6 +56,7 @@ class USSDFlow extends Model
 
     /**
      * Generate menu text from USSDFlowOption records
+     * Respects user's order and starts numbering from 0
      */
     public function generateMenuTextFromOptions(): string
     {
@@ -68,7 +69,13 @@ class USSDFlow extends Model
         $menuText = '';
         foreach ($options as $index => $option) {
             if ($index > 0) $menuText .= "\n";
-            $menuText .= ($index + 1) . ". " . $option->option_text;
+            
+            // Use option_value if set, otherwise use index (starting from 0)
+            $displayNumber = $option->option_value !== null && $option->option_value !== ''
+                ? $option->option_value
+                : $index;
+            
+            $menuText .= $displayNumber . ". " . $option->option_text;
         }
         
         return $menuText;
@@ -98,6 +105,8 @@ class USSDFlow extends Model
         
         // Replace template variables if session is provided
         if ($session && !empty($title)) {
+            // Refresh session to ensure we have the latest session_data
+            $session->refresh();
             $title = $this->replaceTemplateVariables($title, $session);
         }
         
@@ -156,7 +165,7 @@ class USSDFlow extends Model
             }
             
             $value = is_scalar($value) ? (string) $value : '';
-            return $sanitizationService->sanitizeOutput($value, 500); // Limit individual variable length
+            return $sanitizationService->sanitizeOutput($value, 500);
         }, $text);
     }
     
@@ -165,25 +174,12 @@ class USSDFlow extends Model
      */
     private function getNestedValueFromContext(string $path, array $context, array $sessionData)
     {
-
         $pathParts = explode('.', $path, 2);
         $topLevelKey = $pathParts[0];
+        $remainingPath = $pathParts[1] ?? '';
         
-        if (isset($context[$topLevelKey])) {
-            if (count($pathParts) === 1) {
-                return is_scalar($context[$topLevelKey]) ? (string) $context[$topLevelKey] : '';
-            }
-            
-            $nestedPath = $pathParts[1];
-            $value = data_get($context[$topLevelKey], $nestedPath, null);
-            
-            if ($value !== null) {
-                return is_scalar($value) ? (string) $value : '';
-            }
-        }
-        
+        // Handle session.* paths specially
         if ($topLevelKey === 'session') {
-            $remainingPath = $pathParts[1] ?? '';
 
             if ($remainingPath === 'phone_number') {
                 if (isset($sessionData['recipient_type']) && $sessionData['recipient_type'] === 'self') {
@@ -208,12 +204,45 @@ class USSDFlow extends Model
                 return $context['session']['phone_number'] ?? '';
             }
             
-            if (str_starts_with($remainingPath, 'data.')) {
-                $dataPath = substr($remainingPath, 5);
-                return data_get($sessionData, $dataPath, '');
+            // Handle {{session.data}} - access the 'data' field from session_data
+            // IMPORTANT: $context['session']['data'] is the whole session_data array
+            // We need to access $sessionData['data'] directly
+            if ($remainingPath === 'data') {
+                $value = $sessionData['data'] ?? null;
+                
+                if ($value !== null && $value !== '') {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                // If not found in sessionData, try context as fallback
+                $contextData = $context['session']['data'] ?? [];
+                if (is_array($contextData) && isset($contextData['data'])) {
+                    $value = $contextData['data'];
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                return '';
             }
             
-            return data_get($context['session'], $remainingPath, '');
+            // Handle {{session.data.field}} - access nested fields within the data object
+            if (str_starts_with($remainingPath, 'data.')) {
+                $dataPath = substr($remainingPath, 5);
+                // First try sessionData directly
+                $value = data_get($sessionData, $dataPath, null);
+                if ($value !== null) {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                // Fallback to context
+                $contextData = $context['session']['data'] ?? [];
+                return data_get($contextData, $dataPath, '');
+            }
+            
+            // For other session.* paths, try context first, then sessionData
+            $value = data_get($context['session'], $remainingPath, null);
+            if ($value !== null) {
+                return is_scalar($value) ? (string) $value : '';
+            }
+            return data_get($sessionData, $remainingPath, '');
         }
         
         $value = data_get($sessionData, $path, null);
@@ -235,6 +264,7 @@ class USSDFlow extends Model
 
     /**
      * Parse menu_text and create/update USSDFlowOption records
+     * Respects user's numbering (starting from 0) and order
      */
     public function parseMenuTextToOptions(): void
     {
@@ -246,18 +276,28 @@ class USSDFlow extends Model
             $line = trim($line);
             if (empty($line)) continue;
             
-            // Remove any existing numbering patterns and extract just the text
-            $optionText = preg_replace('/^\d+[\.\)]?\s*/', '', $line);
-            $optionText = trim($optionText);
+            // Try to extract the number from the beginning of the line
+            $extractedNumber = null;
+            if (preg_match('/^(\d+)[\.\)]?\s*(.+)$/', $line, $matches)) {
+                $extractedNumber = (int) $matches[1];
+                $optionText = trim($matches[2]);
+            } else {
+                // No number found, remove any numbering patterns and extract just the text
+                $optionText = preg_replace('/^\d+[\.\)]?\s*/', '', $line);
+                $optionText = trim($optionText);
+            }
             
             if (!empty($optionText)) {
+                // Use extracted number if found, otherwise use index (starting from 0)
+                $optionValue = $extractedNumber !== null ? $extractedNumber : $optionIndex;
+                
                 $options[] = [
                     'option_text' => $optionText,
-                    'option_value' => ($optionIndex + 1), // Always use sequential numbering starting from 1
+                    'option_value' => $optionValue,
                     'action_type' => 'navigate',
                     'action_data' => null,
                     'next_flow_id' => null,
-                    'sort_order' => $optionIndex + 1,
+                    'sort_order' => $optionIndex + 1, // sort_order still starts from 1 for ordering
                     'is_active' => true
                 ];
                 $optionIndex++;

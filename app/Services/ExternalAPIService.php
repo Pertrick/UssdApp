@@ -1005,23 +1005,30 @@ class ExternalAPIService
      */
     private function extractErrorMessageFromResponse(ExternalAPIConfiguration $apiConfig, $responseBody): ?string
     {
-        $errorHandling = $apiConfig->getErrorHandling();
-        $errorMessagePath = $errorHandling['error_message_path'] ?? null;
+        // Priority: error_path (top-level config) > error_handling.error_message_path > common paths (fallback)
+        $errorPath = $apiConfig->error_path;
         
-        if (!$errorMessagePath) {
-            $commonPaths = ['message', 'error', 'error_message', 'msg', 'description', 'error.description', 'error.message'];
-            foreach ($commonPaths as $path) {
-                $value = $this->getNestedValue($responseBody, $path);
-                if ($value && is_string($value) && strlen($value) > 0) {
-                    return $this->sanitizeErrorMessage($value);
-                }
-            }
-            return null;
+        // If error_path is not set, try error_handling.error_message_path
+        if (empty($errorPath)) {
+            $errorHandling = $apiConfig->getErrorHandling();
+            $errorPath = $errorHandling['error_message_path'] ?? null;
         }
         
-        $value = $this->getNestedValue($responseBody, $errorMessagePath);
-        if ($value && is_string($value) && strlen($value) > 0) {
-            return $this->sanitizeErrorMessage($value);
+        // If error_path is configured, use it
+        if (!empty($errorPath)) {
+            $value = $this->getNestedValue($responseBody, $errorPath);
+            if ($value && is_string($value) && strlen($value) > 0) {
+                return $this->sanitizeErrorMessage($value);
+            }
+        }
+        
+        // Fallback to common error message paths
+        $commonPaths = ['message', 'error', 'error_message', 'msg', 'description', 'error.description', 'error.message'];
+        foreach ($commonPaths as $path) {
+            $value = $this->getNestedValue($responseBody, $path);
+            if ($value && is_string($value) && strlen($value) > 0) {
+                return $this->sanitizeErrorMessage($value);
+            }
         }
         
         return null;

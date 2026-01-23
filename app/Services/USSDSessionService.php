@@ -293,7 +293,7 @@ class USSDSessionService
                         unset($sessionData['error_flow_id']);
                         $session->update(['session_data' => $sessionData]);
                         
-                        $this->logSessionAction($session, 'input_retry_after_api_error', $input, "Re-prompting for {$lastInputType} to retry failed API call", 'info');
+                        $this->logSessionAction($session, 'input_retry_after_api_error', $input, "Re-prompting for {$lastInputType} to retry failed API call", 'success');
                         
                         return $this->handleInputCollection($session, $input, $lastInputType, $sessionData['input_prompt']);
                     }
@@ -308,7 +308,7 @@ class USSDSessionService
                     return [
                         'success' => true,
                         'message' => $inputPrompt ?? 'Please enter your input:',
-                        'flow_title' => $currentFlow->title,
+                        'flow_title' => $currentFlow->getProcessedTitle($session),
                         'flow_description' => $currentFlow->description,
                         'requires_input' => true,
                         'current_flow' => $currentFlow,
@@ -415,8 +415,8 @@ class USSDSessionService
                             ->first();
                         
                         if ($inputOption) {
-                            $session->update(['session_data' => $sessionData]);
-                            $this->logSessionAction($session, 'api_retry_with_new_input', $lastSelection, "Re-prompting for {$lastInputType} to retry failed API call", 'info');
+                $session->update(['session_data' => $sessionData]);
+                            $this->logSessionAction($session, 'api_retry_with_new_input', $lastSelection, "Re-prompting for {$lastInputType} to retry failed API call", 'success');
                             
                             // Navigate back to input collection flow to re-prompt for input
                             $session->update(['current_flow_id' => $inputFlow->id]);
@@ -447,19 +447,19 @@ class USSDSessionService
                         $originalOption = null;
                     }
                 }
-                
-                if ($originalFlow && $originalOption && $originalFlow->is_active && $originalOption->is_active) {
-                    // Clear error state
-                    unset($sessionData['in_error_flow']);
-                    unset($sessionData['error_flow_id']);
-                    $session->update([
-                        'current_flow_id' => $originalFlow->id,
-                        'session_data' => $sessionData
-                    ]);
                     
+                    if ($originalFlow && $originalOption && $originalFlow->is_active && $originalOption->is_active) {
+                        // Clear error state
+                        unset($sessionData['in_error_flow']);
+                        unset($sessionData['error_flow_id']);
+                        $session->update([
+                        'current_flow_id' => $originalFlow->id,
+                            'session_data' => $sessionData
+                        ]);
+                        
                     // Retry the API call with existing input (for non-credential errors or if we couldn't find input flow)
-                    $this->logSessionAction($session, 'api_retry', $lastSelection, "Retrying failed API call (attempt " . ($retryCount + 1) . ")", 'info');
-                    return $this->handleAction($session, $originalOption);
+                        $this->logSessionAction($session, 'api_retry', $lastSelection, "Retrying failed API call (attempt " . ($retryCount + 1) . ")", 'success');
+                        return $this->handleAction($session, $originalOption);
                 }
             }
             
@@ -673,6 +673,22 @@ class USSDSessionService
         $continuationType = $result['continuation_type'] ?? 'continue';
         $nextFlowId = $result['next_flow_id'] ?? null;
         
+        // Log what we received from DynamicFlowProcessor
+        Log::info('USSDSessionService: received from DynamicFlowProcessor', [
+            'flow_id' => $flow->id,
+            'continuation_type' => $continuationType,
+            'next_flow_id_from_result' => $result['next_flow_id'] ?? 'not_set',
+            'next_flow_id_type' => gettype($result['next_flow_id'] ?? null),
+            'result_keys' => array_keys($result)
+        ]);
+        
+        // Normalize next_flow_id - convert empty string to null, ensure it's a valid ID
+        if ($nextFlowId === '' || $nextFlowId === '0') {
+            $nextFlowId = null;
+        } else if ($nextFlowId !== null && $nextFlowId !== '') {
+            $nextFlowId = (int) $nextFlowId; // Ensure it's an integer for database queries
+        }
+        
         // Handle continue without display - skip display and navigate directly
         if ($continuationType === 'continue_without_display') {
             // Validate that next_flow_id is configured
@@ -680,7 +696,10 @@ class USSDSessionService
                 Log::warning('continue_without_display requires next_flow_id', [
                     'session_id' => $session->id,
                     'flow_id' => $flow->id,
-                    'flow_name' => $flow->name
+                    'flow_name' => $flow->name,
+                    'next_flow_id_from_result' => $result['next_flow_id'] ?? 'not_set',
+                    'next_flow_id_after_normalization' => $nextFlowId,
+                    'dynamic_config' => $flow->dynamic_config ?? []
                 ]);
                 
                 return [
@@ -697,6 +716,12 @@ class USSDSessionService
             $cachedApiData = $result['cached_api_data'] ?? null;
             
             if ($cachedApiData) {
+                // Ensure cachedApiData is an array for consistent handling
+                if (!is_array($cachedApiData)) {
+                    // If it's a scalar value (string, number, etc.), wrap it
+                    $cachedApiData = ['value' => $cachedApiData, 'data' => $cachedApiData];
+                }
+                
                 // Store API response in structured way for easy access
                 $sessionData['api_response'] = $cachedApiData;
                 $sessionData['last_api_result'] = [
@@ -711,6 +736,18 @@ class USSDSessionService
                             $sessionData[$key] = $value;
                         }
                         $sessionData['api_' . $key] = $value;
+                    }
+                }
+                
+                // Special handling: if 'data' is a string (like validation responses), 
+                // make it easily accessible as 'data' in session_data
+                if (isset($cachedApiData['data']) && is_string($cachedApiData['data'])) {
+                    $sessionData['data'] = $cachedApiData['data'];
+                    // Also store it with a more descriptive name if available
+                    if (isset($cachedApiData['validation_result'])) {
+                        $sessionData['validation_result'] = $cachedApiData['validation_result'];
+                    } else if (isset($cachedApiData['value'])) {
+                        $sessionData['value'] = $cachedApiData['value'];
                     }
                 }
             }
@@ -751,10 +788,21 @@ class USSDSessionService
                 $sessionData
             );
             
+            // Process title with placeholders too
+            $processedTitle = !empty($nextFlow->title) 
+                ? $this->replacePlaceholdersWithApiAndSessionData($nextFlow->title, $cachedApiData ?? [], $sessionData)
+                : '';
+            
+            // Combine title and menu text if title has content
+            $fullMessage = !empty($processedTitle) 
+                ? $processedTitle . "\n\n" . $menuText
+                : $menuText;
+            
             return [
                 'success' => true,
-                'message' => $menuText,
-                'flow_title' => $nextFlow->title,
+                'message' => $fullMessage,
+                // Don't set flow_title when title is already included in message
+                'flow_title' => null,
                 'requires_input' => true,
                 'current_flow' => $nextFlow,
                 'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -893,7 +941,7 @@ class USSDSessionService
                 $session->update(['session_data' => $sessionData]);
                 
                 // Log retry
-                $this->logSessionAction($session, 'dynamic_retry', $input, "Retrying dynamic flow selection (attempt {$currentRetryCount})", 'info');
+                $this->logSessionAction($session, 'dynamic_retry', $input, "Retrying dynamic flow selection (attempt {$currentRetryCount})", 'success');
                 
                 // Continue with normal processing of the selected option
                 // (will fall through to the rest of the function)
@@ -1401,24 +1449,82 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         }
         $endSessionAfterApi = $apiData['end_session_after_api'] ?? true;
         
+        // Get API configuration to access data_path setting
+        $apiConfigId = $apiData['api_configuration_id'] ?? null;
+        $apiConfig = null;
+        if ($apiConfigId) {
+            $apiConfig = ExternalAPIConfiguration::find($apiConfigId);
+        }
+        
         // Store API result in session data
         $sessionData = $session->session_data ?? [];
         $sessionData['last_api_result'] = $result;
         
-        $apiResponseData = $result['data'] ?? [];
-        $sessionData['api_response'] = $apiResponseData;
+        // Extract API response data using configurable data_path
+        // Priority: data_path > list_path (from dynamic_config) > 'data' (default)
+        $dataPath = null;
+        if ($apiConfig) {
+            $dataPath = $apiConfig->data_path;
+        }
         
-        // Similar to how selected_item_data fields are extracted
-        foreach ($apiResponseData as $key => $value) {
-            if (is_scalar($value) || is_null($value)) {
- 
-                if (!isset($sessionData[$key])) {
-                    $sessionData[$key] = $value;
-                }
-                
-                $sessionData['api_' . $key] = $value;
+        // If data_path is not set, try to get list_path from dynamic_config as fallback
+        if (empty($dataPath)) {
+            $currentFlow = $session->currentFlow;
+            if ($currentFlow && $currentFlow->dynamic_config) {
+                $dynamicConfig = is_array($currentFlow->dynamic_config) 
+                    ? $currentFlow->dynamic_config 
+                    : json_decode($currentFlow->dynamic_config, true);
+                $dataPath = $dynamicConfig['list_path'] ?? null;
             }
         }
+        
+        // Final fallback to 'data' if nothing is configured
+        if (empty($dataPath)) {
+            $dataPath = 'data';
+        }
+        
+        // Extract data from raw API response body (not from mapped data)
+        // The raw_response.body contains the actual API response structure
+        $fullResponseBody = $result['raw_response']['body'] ?? [];
+        
+        // Use data_get to extract from the configured path (supports dot notation)
+        // Always use fullResponseBody as the source (raw API response)
+        if (empty($dataPath) || $dataPath === 'data') {
+            // Direct access to 'data' key in raw response
+            $apiResponseData = data_get($fullResponseBody, 'data', []);
+        } else {
+            // Use data_get to extract from the configured path
+            $apiResponseData = data_get($fullResponseBody, $dataPath, []);
+        }
+        
+        // Handle case where data is a string (not an array)
+        if (is_string($apiResponseData)) {
+            // Store the string value directly as 'data' for {{session.data}} access
+            $sessionData['data'] = $apiResponseData;
+            $sessionData['api_data'] = $apiResponseData;
+            $sessionData['api_response'] = ['data' => $apiResponseData];
+        } else {
+            // Handle array response
+            $sessionData['api_response'] = $apiResponseData;
+            
+            // Store the full data object for {{session.data}} access
+            if (is_array($apiResponseData)) {
+                $sessionData['data'] = $apiResponseData;
+            }
+            
+            // Extract individual fields for direct access
+            foreach ($apiResponseData as $key => $value) {
+                if (is_scalar($value) || is_null($value)) {
+                    if (!isset($sessionData[$key])) {
+                        $sessionData[$key] = $value;
+                    }
+                    $sessionData['api_' . $key] = $value;
+                }
+            }
+        }
+        
+        // Also store the full API response body for comprehensive access
+        $sessionData['api_full_response'] = $result;
         
         // Reset retry count on successful API call
         $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
@@ -1479,23 +1585,37 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                 }
                 
                 // Update session to next flow
-                $session->update(['current_flow_id' => $nextFlow->id]);
-                
-                // Refresh session data after update
+                    $session->update(['current_flow_id' => $nextFlow->id]);
+                    
+                // Refresh session data after update to get the latest session_data with API response
                 $session->refresh();
                 $sessionData = $session->session_data ?? [];
                 
                 // Replace placeholders in menu text with both API response data and session data
-                $menuText = $this->replacePlaceholdersWithApiAndSessionData($nextFlow->menu_text, $result['data'], $sessionData);
+                // Pass the extracted API data (not mapped data) for {api.*} placeholders
+                $extractedApiData = $sessionData['api_response'] ?? ($result['raw_response']['body'] ?? []);
+                $menuText = $this->replacePlaceholdersWithApiAndSessionData($nextFlow->menu_text, $extractedApiData, $sessionData);
+                
+                // Process title with placeholders too
+                $processedTitle = !empty($nextFlow->title) 
+                    ? $this->replacePlaceholdersWithApiAndSessionData($nextFlow->title, $extractedApiData, $sessionData)
+                    : '';
                 
                 if ($continueWithoutDisplay) {
                     // Silent navigation - don't display API message (matches dynamic flow behavior)
                     $this->logSessionAction($session, 'api_call_silent_continue', null, "Navigated from flow {$session->current_flow_id} to {$nextFlowId} without displaying API response", 'success');
                     
+                    // Combine title and menu text if title has content
+                    $fullMessage = !empty($processedTitle) 
+                        ? $processedTitle . "\n\n" . $menuText
+                        : $menuText;
+                    
                     return [
                         'success' => true,
-                        'message' => $menuText,
-                        'flow_title' => $nextFlow->title,
+                        'message' => $fullMessage,
+                        // Don't set flow_title when title is already included in message
+                        // This prevents AfricasTalkingService from double-adding the title
+                        'flow_title' => null,
                         'requires_input' => true,
                         'current_flow' => $nextFlow,
                         'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -1503,12 +1623,23 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                 } else {
                     // Default behavior: Show API message followed by next flow menu (backward compatible)
                     $apiMessage = $result['message'] ?? 'Operation completed successfully.';
-                    $fullMessage = $apiMessage . "\n\n" . $menuText;
+                    
+                    // Process title with placeholders too
+                    $processedTitle = !empty($nextFlow->title) 
+                        ? $this->replacePlaceholdersWithApiAndSessionData($nextFlow->title, $extractedApiData, $sessionData)
+                        : '';
+                    
+                    // Combine title (if it has placeholders), API message, and menu text
+                    $fullMessage = $apiMessage;
+                    if (!empty($processedTitle)) {
+                        $fullMessage = $processedTitle . "\n\n" . $fullMessage;
+                    }
+                    $fullMessage .= "\n\n" . $menuText;
                     
                     return [
                         'success' => true,
                         'message' => $fullMessage,
-                        'flow_title' => $nextFlow->title,
+                        'flow_title' => $processedTitle,
                         'requires_input' => true,
                         'current_flow' => $nextFlow,
                         'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
@@ -1550,9 +1681,38 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         // Extract error information from API result if available
         $apiErrorMessage = null;
         $apiErrorData = [];
+        
+        // Get API configuration to access error_path setting
+        $apiConfigId = $apiData['api_configuration_id'] ?? null;
+        $apiConfig = null;
+        if ($apiConfigId) {
+            $apiConfig = ExternalAPIConfiguration::find($apiConfigId);
+        }
+        
         if ($apiResult) {
             $apiErrorMessage = $apiResult['api_error_message'] ?? $apiResult['message'] ?? null;
-            $apiErrorData = $apiResult['data'] ?? [];
+            
+            // Extract error data using configurable error_path (similar to data_path for success)
+            $errorPath = null;
+            if ($apiConfig) {
+                $errorPath = $apiConfig->error_path;
+            }
+            
+            // If error_path is not set, try error_handling.error_message_path as fallback
+            if (empty($errorPath) && $apiConfig) {
+                $errorHandling = $apiConfig->getErrorHandling();
+                $errorPath = $errorHandling['error_message_path'] ?? null;
+            }
+            
+            // Extract error data from response
+            $fullErrorResponse = $apiResult['raw_response']['body'] ?? $apiResult;
+            if (!empty($errorPath)) {
+                // Use error_path to extract error data structure
+                $apiErrorData = data_get($fullErrorResponse, $errorPath, $apiResult['data'] ?? []);
+            } else {
+                // Fallback to common error data locations
+                $apiErrorData = $apiResult['data'] ?? $apiResult['error'] ?? [];
+            }
         }
         
         $technicalError = $exception ? $exception->getMessage() : ($apiResult['error'] ?? 'API call failed');
@@ -1561,6 +1721,21 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $sessionData['error_message'] = $apiErrorMessage ?? $technicalError;
         $sessionData['api_error_message'] = $apiErrorMessage; 
         $sessionData['technical_error'] = $technicalError;
+        
+        // Store error data for template variable access (similar to success data)
+        if (!empty($apiErrorData)) {
+            if (is_string($apiErrorData)) {
+                $sessionData['error_data'] = $apiErrorData;
+            } elseif (is_array($apiErrorData)) {
+                $sessionData['error_data'] = $apiErrorData;
+                // Extract individual error fields for direct access
+                foreach ($apiErrorData as $key => $value) {
+                    if (is_scalar($value) || is_null($value)) {
+                        $sessionData['error_' . $key] = $value;
+                    }
+                }
+            }
+        }
         
         // Track retry attempts for API calls
         $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
@@ -1610,6 +1785,10 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         }
         
         $session->update(['session_data' => $sessionData]);
+        
+        // Log the API error with 'error' status
+        $errorLogMessage = $apiErrorMessage ?? $technicalError ?? 'API call failed';
+        $this->logSessionAction($session, 'api_call_error', $option->option_value ?? null, $errorLogMessage, 'error', null, $technicalError);
         
         $errorMessage = $this->processErrorMessageTemplate($errorMessageTemplate, [
             'error_message' => $apiErrorMessage ?? $technicalError,
@@ -1670,7 +1849,7 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                     $session->update(['session_data' => $sessionData, 'current_flow_id' => $inputFlow->id]);
                     
                     $inputTypeLabel = str_replace(['input_', '_'], ['', ' '], $lastInputType);
-                    $this->logSessionAction($session, 'input_retry_after_api_error', null, "Re-prompting for {$inputTypeLabel} ({$lastInputType}) to retry failed API call", 'info');
+                    $this->logSessionAction($session, 'input_retry_after_api_error', null, "Re-prompting for {$inputTypeLabel} ({$lastInputType}) to retry failed API call", 'success');
                     
                     // Get error message from API result or session data
                     // $apiErrorMessage is already extracted from $apiResult at the top of this method
@@ -1841,7 +2020,8 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         
         return preg_replace_callback('/\{api\.([^}]+)\}/', function($matches) use ($apiData, $sanitizationService) {
             $field = $matches[1];
-            $value = $apiData[$field] ?? '';
+            // Support dot notation for nested fields (e.g., api.data.field)
+            $value = data_get($apiData, $field, '');
             // SECURITY: Sanitize API data output
             $value = is_scalar($value) ? (string) $value : '';
             return $sanitizationService->sanitizeOutput($value, 500);
@@ -1853,11 +2033,47 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
      */
     private function replacePlaceholdersWithApiAndSessionData(string $text, array $apiData, array $sessionData): string
     {
-        // First replace API placeholders
+        // First replace API placeholders (single braces: {api.field} or {api.data.field})
         $text = $this->replacePlaceholdersWithApiData($text, $apiData);
         
-        // Then replace session data placeholders
+        // Then replace session data placeholders (single braces: {timestamp}, {phone}, etc.)
         $text = $this->replacePlaceholders($text, $sessionData);
+        
+        // Finally replace template variables (double braces: {{session.field}} or {{session.data.field}})
+        $sanitizationService = app(SanitizationService::class);
+        $text = preg_replace_callback('/\{\{([^}]+)\}\}/', function($matches) use ($sessionData, $apiData, $sanitizationService) {
+            $path = trim($matches[1]);
+            
+            // Handle session variables with dot notation support
+            if (str_starts_with($path, 'session.')) {
+                $field = substr($path, 8); // Remove 'session.' prefix
+                // Support dot notation for nested paths (e.g., session.data.field)
+                $value = data_get($sessionData, $field, '');
+                
+                $value = is_scalar($value) ? (string) $value : '';
+                return $sanitizationService->sanitizeOutput($value, 500);
+            }
+            
+            // Handle input variables
+            if (str_starts_with($path, 'input.')) {
+                $field = substr($path, 6); // Remove 'input.' prefix
+                $collectedInput = $sessionData['collected_input'] ?? [];
+                $value = data_get($collectedInput, $field, '');
+                $value = is_scalar($value) ? (string) $value : '';
+                return $sanitizationService->sanitizeOutput($value, 500);
+            }
+            
+            // Handle api variables (for consistency with double braces syntax)
+            if (str_starts_with($path, 'api.')) {
+                $field = substr($path, 4); // Remove 'api.' prefix
+                // Support dot notation for nested paths (e.g., api.data.field)
+                $value = data_get($apiData, $field, '');
+                $value = is_scalar($value) ? (string) $value : '';
+                return $sanitizationService->sanitizeOutput($value, 500);
+            }
+            
+            return $matches[0]; // Return original if no match
+        }, $text);
         
         return $text;
     }

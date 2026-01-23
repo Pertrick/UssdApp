@@ -259,6 +259,11 @@ class USSDController extends Controller
         }
 
         try {
+            // Normalize dynamic_config.next_flow_id - convert empty string to null
+            if ($request->has('dynamic_config.next_flow_id') && $request->input('dynamic_config.next_flow_id') === '') {
+                $request->merge(['dynamic_config' => array_merge($request->input('dynamic_config', []), ['next_flow_id' => null])]);
+            }
+            
             $validated = $request->validate([
                 'name' => 'required|string|max:255|min:2',
                 'title' => 'nullable|string|max:255',
@@ -354,6 +359,13 @@ class USSDController extends Controller
             abort(403);
         }
 
+        // Normalize dynamic_config.next_flow_id - convert empty string to null
+        if ($request->has('dynamic_config.next_flow_id') && $request->input('dynamic_config.next_flow_id') === '') {
+            $dynamicConfig = $request->input('dynamic_config', []);
+            $dynamicConfig['next_flow_id'] = null;
+            $request->merge(['dynamic_config' => $dynamicConfig]);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255|min:2',
             'title' => 'nullable|string|max:255',
@@ -366,8 +378,8 @@ class USSDController extends Controller
             'dynamic_config.label_field' => 'nullable|string|max:100',
             'dynamic_config.value_field' => 'nullable|string|max:100',
             'dynamic_config.empty_message' => 'nullable|string|max:500',
-            'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent',
-            'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id',
+            'dynamic_config.continuation_type' => 'nullable|in:continue,end,api_dependent,continue_without_display',
+            'dynamic_config.next_flow_id' => 'nullable|exists:ussd_flows,id|required_if:dynamic_config.continuation_type,continue_without_display',
             'dynamic_config.items_per_page' => 'nullable|integer|min:3|max:20',
             'dynamic_config.next_label' => 'nullable|string|max:20',
             'dynamic_config.back_label' => 'nullable|string|max:20',
@@ -489,6 +501,12 @@ class USSDController extends Controller
             'dynamic_config' => $validated['dynamic_config'] ?? null,
         ];
         
+        // If flow is being changed to dynamic, clear any existing options
+        // (Dynamic flows don't use static options)
+        if ($validated['flow_type'] === 'dynamic') {
+            $flow->options()->delete();
+        }
+        
         $flow->update($updateData);
 
         // Handle options if provided (only for static flows)
@@ -523,11 +541,11 @@ class USSDController extends Controller
                  if ($optionData['next_flow_id'] === 'end_session') {
                      // Store end_session flag in action_data instead of next_flow_id
                      $actionData['end_session_after_input'] = true;
-                } else {
-                    $nextFlowId = $optionData['next_flow_id'] ?? null;
-                }
-                
-                $flow->options()->create([
+                 } else {
+                     $nextFlowId = $optionData['next_flow_id'] ?? null;
+                 }
+                 
+                 $flow->options()->create([
                      'option_text' => $optionData['option_text'],
                      'option_value' => $optionData['option_value'],
                      'action_type' => $optionData['action_type'],
@@ -539,8 +557,16 @@ class USSDController extends Controller
                  ]);
              }
             
-            // Auto-generate menu_text from options
+            // Auto-generate menu_text from options, but preserve manual edits that contain placeholders
+            $originalMenuText = $flow->menu_text;
             $flow->updateMenuTextFromOptions();
+            
+            // If the original menu_text contained placeholders ({{...}}), restore it
+            // This allows users to manually add placeholders like {{session.data}} to the menu text
+            if (preg_match('/\{\{[^}]+\}\}/', $originalMenuText)) {
+                $flow->menu_text = $originalMenuText;
+                $flow->save();
+            }
         }
 
         // Reload the flow with options
