@@ -25,14 +25,6 @@ class DynamicFlowProcessor
     {
         $dynamicConfig = $flow->dynamic_config ?? [];
         
-        // Debug: Log the raw dynamic_config to see what we're working with
-        Log::info('DynamicFlowProcessor: Raw dynamic_config', [
-            'flow_id' => $flow->id,
-            'dynamic_config' => $dynamicConfig,
-            'next_flow_id_raw' => $dynamicConfig['next_flow_id'] ?? 'not_set',
-            'next_flow_id_type' => gettype($dynamicConfig['next_flow_id'] ?? null),
-            'continuation_type' => $dynamicConfig['continuation_type'] ?? 'not_set'
-        ]);
         
         if (empty($dynamicConfig['api_configuration_id'])) {
             return [
@@ -97,22 +89,6 @@ class DynamicFlowProcessor
                 $session
             );
             
-            // Debug logging
-            Log::info('Dynamic Flow Processing Debug', [
-                'flow_id' => $flow->id,
-                'api_response' => $apiResponse,
-                'full_response_data' => $fullResponseData,
-                'dynamic_config' => $dynamicConfig,
-                'list_path' => $dynamicConfig['list_path'] ?? 'data',
-                'options_count' => count($options)
-            ]);
-            
-            Log::info('Dynamic Flow Options Generated', [
-                'flow_id' => $flow->id,
-                'options_count' => count($options),
-                'options' => $options
-            ]);
-            
             // Normalize next_flow_id - handle string values from JSON storage
             $nextFlowId = $dynamicConfig['next_flow_id'] ?? null;
             if ($nextFlowId === '' || $nextFlowId === '0') {
@@ -120,15 +96,6 @@ class DynamicFlowProcessor
             } else if ($nextFlowId !== null && $nextFlowId !== '') {
                 $nextFlowId = (int) $nextFlowId; // Ensure it's an integer
             }
-            
-            // Log for debugging
-            Log::info('DynamicFlowProcessor: next_flow_id normalization', [
-                'flow_id' => $flow->id,
-                'raw_next_flow_id' => $dynamicConfig['next_flow_id'] ?? 'not_set',
-                'normalized_next_flow_id' => $nextFlowId,
-                'continuation_type' => $dynamicConfig['continuation_type'] ?? 'not_set',
-                'options_count' => count($options)
-            ]);
             
             if (empty($options)) {
             return [
@@ -394,12 +361,6 @@ class DynamicFlowProcessor
         $continuationType = $dynamicConfig['continuation_type'] ?? 'continue';
         
         // Log the next step determination
-        Log::info('Determining next step', [
-            'flow_id' => $flow->id,
-            'selected_value' => $selectedValue,
-            'continuation_type' => $continuationType,
-            'session_id' => $session->id
-        ]);
         
         switch ($continuationType) {
             case 'end':
@@ -411,11 +372,6 @@ class DynamicFlowProcessor
             case 'continue':
                 $nextFlowId = $dynamicConfig['next_flow_id'] ?? null;
                 if ($nextFlowId) {
-                    Log::info('Navigating to next flow', [
-                        'current_flow_id' => $flow->id,
-                        'next_flow_id' => $nextFlowId,
-                        'selected_value' => $selectedValue
-                    ]);
                     
                     return [
                         'action' => 'navigate',

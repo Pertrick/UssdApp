@@ -345,6 +345,43 @@
                             </div>
                         </div>
 
+                        <!-- Error Handling & Messages -->
+                        <div>
+                            <h4 class="text-md font-medium text-gray-900 mb-4">Error Handling & Messages</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Success Message Template (Optional)
+                                    </label>
+                                    <input
+                                        v-model="form.error_handling.success_message"
+                                        type="text"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="{message} or Operation completed successfully."
+                                    />
+                                    <p class="mt-1 text-xs text-gray-500">
+                                        Message to show when API call succeeds. Use <code class="bg-gray-100 px-1 rounded">{message}</code> to display the API's message field. 
+                                        If empty, will automatically use the API's message field if available.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Fallback Error Message (Optional)
+                                    </label>
+                                    <input
+                                        v-model="form.error_handling.fallback_message"
+                                        type="text"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="Service temporarily unavailable. Please try again later."
+                                    />
+                                    <p class="mt-1 text-xs text-gray-500">
+                                        Default error message if API error message cannot be extracted. 
+                                        If empty, will try to extract from API response using error_path.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Success Criteria -->
                         <div>
                             <h4 class="text-md font-medium text-gray-900 mb-4">Success Criteria</h4>
@@ -368,7 +405,8 @@
                                         v-model="criteria.value"
                                         type="text"
                                         class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                                        placeholder="success"
+                                        :placeholder="criteria.operator === 'equals' ? '1 or 1,0 (comma-separated for multiple)' : 'success'"
+                                        :title="criteria.operator === 'equals' ? 'For multiple values, use comma-separated: e.g., 1,0 means success if value is 1 OR 0' : ''"
                                     />
                                     <button
                                         type="button"
@@ -466,7 +504,11 @@ const form = useForm({
                      (props.apiConfig.response_mapping ? Object.entries(props.apiConfig.response_mapping).map(([key, value]) => ({ key, value })) : []),
     data_path: props.apiConfig.data_path || '',
     error_path: props.apiConfig.error_path || '',
-    success_criteria: Array.isArray(props.apiConfig.success_criteria) ? props.apiConfig.success_criteria : []
+    success_criteria: Array.isArray(props.apiConfig.success_criteria) ? props.apiConfig.success_criteria : [],
+    error_handling: {
+        success_message: props.apiConfig.error_handling?.success_message || '',
+        fallback_message: props.apiConfig.error_handling?.fallback_message || ''
+    }
 });
 
 const addHeader = () => {
@@ -515,6 +557,18 @@ const submitForm = () => {
     form.request_mapping = form.request_mapping.filter(m => m.key && m.value);
     form.response_mapping = form.response_mapping.filter(m => m.key && m.value);
     form.success_criteria = form.success_criteria.filter(c => c.field && c.value);
+    
+    // Clean up error_handling - remove empty fields
+    if (form.error_handling) {
+        const cleaned = {};
+        if (form.error_handling.success_message && form.error_handling.success_message.trim()) {
+            cleaned.success_message = form.error_handling.success_message.trim();
+        }
+        if (form.error_handling.fallback_message && form.error_handling.fallback_message.trim()) {
+            cleaned.fallback_message = form.error_handling.fallback_message.trim();
+        }
+        form.error_handling = Object.keys(cleaned).length > 0 ? cleaned : {};
+    }
     
     // Get CSRF token from meta tag or Inertia props
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 

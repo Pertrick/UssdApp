@@ -906,12 +906,13 @@ class ExternalAPIService
             'success' => true,
             'data' => $mappedData,
             'raw_response' => $response,
-            'message' => $this->getSuccessMessage($apiConfig, $mappedData),
+            'message' => $this->getSuccessMessage($apiConfig, $mappedData, $response),
         ];
     }
 
     /**
      * Evaluate success criteria
+     * Supports multiple values for "equals" operator (comma-separated) - e.g., "1,0" means success if value is 1 OR 0
      */
     private function evaluateSuccessCriteria(array $criteria, array $response): bool
     {
@@ -927,16 +928,38 @@ class ExternalAPIService
             if ($field && $operator && $value !== null) {
                 $actualValue = $this->getNestedValue($response['body'], $field);
                 
-                $isMatch = match($operator) {
-                    'equals' => $actualValue == $value,
-                    'not_equals' => $actualValue != $value,
-                    'contains' => str_contains($actualValue, $value),
-                    'greater_than' => $actualValue > $value,
-                    'less_than' => $actualValue < $value,
-                    'exists' => $actualValue !== null,
-                    'not_exists' => $actualValue === null,
-                    default => false
-                };
+                if ($operator === 'equals' && str_contains($value, ',')) {
+                    $values = array_map('trim', explode(',', $value));
+                
+                    $normalizedValues = [];
+                    foreach ($values as $v) {
+                        if (is_numeric($actualValue) && is_numeric($v)) {
+                            $normalizedValues[] = is_float($actualValue) || strpos($v, '.') !== false 
+                                ? (float)$v 
+                                : (int)$v;
+                        } else {
+                            $normalizedValues[] = $v;
+                        }
+                    }
+                    // Normalize actualValue to match
+                    if (is_numeric($actualValue) && !empty($normalizedValues) && is_numeric($normalizedValues[0])) {
+                        $actualValue = is_float($actualValue) || (is_string($actualValue) && strpos($actualValue, '.') !== false)
+                            ? (float)$actualValue
+                            : (int)$actualValue;
+                    }
+                    $isMatch = in_array($actualValue, $normalizedValues, true);
+                } else {
+                    $isMatch = match($operator) {
+                        'equals' => $actualValue == $value,
+                        'not_equals' => $actualValue != $value,
+                        'contains' => str_contains((string)$actualValue, (string)$value),
+                        'greater_than' => $actualValue > $value,
+                        'less_than' => $actualValue < $value,
+                        'exists' => $actualValue !== null,
+                        'not_exists' => $actualValue === null,
+                        default => false
+                    };
+                }
                 
                 if (!$isMatch) {
                     return false;
@@ -961,14 +984,41 @@ class ExternalAPIService
 
     /**
      * Get success message
+     * Uses configured template with placeholders, or API's message field if template is empty
      */
-    private function getSuccessMessage(ExternalAPIConfiguration $apiConfig, array $data): string
+    private function getSuccessMessage(ExternalAPIConfiguration $apiConfig, array $data, ?array $rawResponse = null): string
     {
-        $messageTemplate = $apiConfig->getErrorHandling()['success_message'] ?? 'Operation completed successfully.';
+        $errorHandling = $apiConfig->getErrorHandling();
+        $messageTemplate = $errorHandling['success_message'] ?? '';
         
-        // Replace placeholders in message
-        return preg_replace_callback('/\{([^}]+)\}/', function($matches) use ($data) {
-            $value = $this->getNestedValue($data, $matches[1]);
+        // If template is empty, try to use API's message field directly
+        if (empty($messageTemplate) && $rawResponse && isset($rawResponse['body']['message'])) {
+            $apiMessage = $rawResponse['body']['message'];
+            if (!empty($apiMessage) && is_string($apiMessage)) {
+                return $apiMessage;
+            }
+        }
+        
+        // If template is still empty, use default
+        if (empty($messageTemplate)) {
+            $messageTemplate = 'Operation completed successfully.';
+        }
+        
+        // Merge data with raw response body for placeholder replacement
+        $placeholderData = array_merge($data, $rawResponse['body'] ?? []);
+        
+        // Replace placeholders in message (supports {message}, {api.message}, etc.)
+        return preg_replace_callback('/\{([^}]+)\}/', function($matches) use ($placeholderData, $rawResponse) {
+            $key = $matches[1];
+            
+            // Try to get from placeholder data first
+            $value = $this->getNestedValue($placeholderData, $key);
+            
+            // If not found and key is just "message", try raw response body
+            if ($value === null && $key === 'message' && $rawResponse && isset($rawResponse['body']['message'])) {
+                $value = $rawResponse['body']['message'];
+            }
+            
             return $value ?? '';
         }, $messageTemplate);
     }

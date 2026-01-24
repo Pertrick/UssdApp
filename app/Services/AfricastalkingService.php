@@ -39,7 +39,7 @@ class AfricasTalkingService
                 ? $sanitizationService->sanitizeInput($requestData['phoneNumber'], 'input_phone')
                 : null;
             $text = isset($requestData['text']) && $requestData['text'] !== ''
-                ? $sanitizationService->sanitizeInput($requestData['text'], 'ussd_selection')
+                ? $sanitizationService->sanitizeInput(str_replace("\0", "", $requestData['text']), 'ussd_selection')
                 : '';
 
             Log::info('AfricasTalking USSD Request', [
@@ -73,6 +73,11 @@ class AfricasTalkingService
             // Empty text indicates first request (session start)
             $isFirstRequest = empty($text);
             $session = $this->getOrCreateSession($ussd, $sessionId, $phoneNumber, $isFirstRequest);
+
+            // Check if session is already completed/ended
+            if ($session->status === 'completed') {
+                return $this->formatResponse('END', 'This session has ended. Please start a new session.');
+            }
 
             // Check if billing failed (insufficient balance, etc.)
             if ($session->billing_status === 'failed') {
@@ -173,7 +178,7 @@ class AfricasTalkingService
             // Only prepend if title is not already in the message
             // Check both the processed title and a substring match (in case of formatting differences)
             $titleInMessage = !empty($title) && (
-                str_contains($messageText, $title) || 
+                stripos($messageText, $title) !== false || 
                 str_starts_with($messageText, substr($title, 0, min(50, strlen($title))))
             );
             

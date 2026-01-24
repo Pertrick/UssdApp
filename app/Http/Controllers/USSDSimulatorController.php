@@ -190,10 +190,29 @@ class USSDSimulatorController extends Controller
         $sessionId = $request->input('session_id');
         $input = $request->input('input');
 
+        // First check if session exists (regardless of status)
         $session = USSDSession::where('ussd_id', $ussd->id)
             ->where('session_id', $sessionId)
-            ->where('status', 'active')
-            ->firstOrFail();
+            ->first();
+        
+        if (!$session) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Session not found',
+                'message' => 'Session not found. Please start a new session.',
+                'session_ended' => true,
+            ], 404);
+        }
+        
+        // Check if session is already completed/ended
+        if ($session->status !== 'active') {
+            return response()->json([
+                'success' => false,
+                'error' => 'Session has ended',
+                'message' => 'This session has ended. Please start a new session.',
+                'session_ended' => true,
+            ], 200); // Return 200 to show message, not 404
+        }
 
         // Check if this is a dynamic flow session
         $sessionData = $session->session_data ?? [];

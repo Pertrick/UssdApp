@@ -102,14 +102,6 @@ class EnvironmentManagementService
                 'required' => false,
                 'priority' => 'medium'
             ],
-            'pattern' => [
-                'title' => 'USSD Pattern',
-                'description' => 'Configure your USSD code (pattern). Update this when moving to production.',
-                'status' => !empty($ussd->pattern),
-                'details' => $ussd->pattern ? "Code: {$ussd->pattern}" : 'No USSD pattern set',
-                'required' => true,
-                'priority' => 'high'
-            ],
         ];
     }
 

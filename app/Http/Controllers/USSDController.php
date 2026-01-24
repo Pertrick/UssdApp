@@ -938,10 +938,7 @@ class USSDController extends Controller
         $validated = $request->validate([
             'gateway_provider' => 'required|string|in:africastalking,hubtel,twilio',
             'api_key' => 'required|string|min:10',
-            'username' => 'required|string|min:3',
-            'pattern' => 'required|string|max:50|unique:ussds,pattern,' . $ussd->id . ',id',
-        ], [
-            'pattern.unique' => 'This USSD code is already in use by another service. Each service must have a unique code.',
+            'username' => 'required|string|min:3'
         ]);
 
         try {

@@ -29,6 +29,17 @@ class Payment extends Model
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = [
+        'formatted_amount',
+        'gateway_name',
+        'status_class'
+    ];
+
+    /**
      * Get the business that owns the payment
      */
     public function business()
@@ -73,7 +84,9 @@ class Payment extends Model
      */
     public function getFormattedAmountAttribute(): string
     {
-        return $this->currency . ' ' . number_format($this->amount, 2);
+        $currency = $this->currency ?? 'USD';
+        $amount = $this->amount ?? 0;
+        return $currency . ' ' . number_format($amount, 2);
     }
 
     /**
@@ -81,6 +94,10 @@ class Payment extends Model
      */
     public function getGatewayNameAttribute(): string
     {
+        if (!$this->gateway) {
+            return 'N/A';
+        }
+
         $gateways = [
             'stripe' => 'Credit/Debit Card',
             'paypal' => 'PayPal',

@@ -490,7 +490,7 @@ function updateInputUI(inputType) {
       inputPlaceholder.value = 'Enter text...';
       break;
     case 'input_number':
-      inputMaxLength.value = 10;
+      inputMaxLength.value = 20; // Match backend limit
       inputPlaceholder.value = 'Enter number...';
       break;
     case 'input_phone':
@@ -502,11 +502,11 @@ function updateInputUI(inputType) {
       inputPlaceholder.value = 'Enter account number...';
       break;
     case 'input_pin':
-      inputMaxLength.value = 6;
+      inputMaxLength.value = 20;
       inputPlaceholder.value = 'Enter PIN...';
       break;
     case 'input_amount':
-      inputMaxLength.value = 10;
+      inputMaxLength.value = 20;
       inputPlaceholder.value = 'Enter amount...';
       break;
     case 'input_selection':
@@ -514,7 +514,7 @@ function updateInputUI(inputType) {
       inputPlaceholder.value = 'Enter selection...';
       break;
     default:
-      inputMaxLength.value = 10;
+      inputMaxLength.value = 20;
       inputPlaceholder.value = 'Enter option...';
       break;
   }

@@ -114,4 +114,22 @@ return [
     */
     'max_input_retries' => env('USSD_MAX_INPUT_RETRIES', 3),
     'max_retry_exceeded_message' => env('USSD_MAX_RETRY_EXCEEDED_MESSAGE', 'Maximum retry attempts exceeded. Please start a new session.'),
+    
+    /*
+    |--------------------------------------------------------------------------
+    | External API Call Retry Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Allow retries for external API calls when input validation fails.
+    | When set to false, the system will display the error message and end the session
+    | instead of allowing the user to retry with corrected input.
+    |
+    | Set to true to allow retries (user can re-enter input after API error).
+    | Set to false to disable retries (show error message and end session immediately).
+    |
+    | Example .env:
+    | USSD_ALLOW_EXTERNAL_API_RETRIES=false
+    |
+    */
+    'allow_external_api_retries' => env('USSD_ALLOW_EXTERNAL_API_RETRIES', false),
 ];

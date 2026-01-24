@@ -42,11 +42,6 @@ class USSDEnvironmentController extends Controller
         }
 
         try {
-            // Ensure pattern exists (should already be set during USSD creation)
-            if (empty($ussd->pattern)) {
-                return redirect()->back()->with('error', 'USSD pattern is required. Please set a pattern for this USSD service.');
-            }
-
             // Create webhook URL
             $webhookUrl = route('webhook.ussd.sandbox', ['ussd' => $ussd->id]);
 
@@ -107,14 +102,6 @@ class USSDEnvironmentController extends Controller
         }
 
         try {
-            // Ensure pattern exists (should already be set during USSD creation)
-            if (empty($ussd->pattern)) {
-                return redirect()->back()->with('error', 'USSD pattern is required. Please set a pattern for this USSD service.');
-            }
-
-            // Note: Pattern should be updated to the production code when moving to live
-            // The pattern field is what AfricasTalking will use to route requests
-
             // Create webhook URL
             $webhookUrl = route('webhook.ussd.live', ['ussd' => $ussd->id]);
             
