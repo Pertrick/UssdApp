@@ -196,5 +196,27 @@ Route::middleware(['auth'])->group(function () {
     });
 });
 
+// Cache Management Route (Admin only)
+Route::post('/cache/clear', function () {
+    try {
+        \Illuminate\Support\Facades\Artisan::call('cache:clear');
+        \Illuminate\Support\Facades\Artisan::call('config:clear');
+        \Illuminate\Support\Facades\Artisan::call('route:clear');
+        \Illuminate\Support\Facades\Artisan::call('view:clear');
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Cache cleared successfully',
+            'output' => 'Application cache, config cache, route cache, and view cache have been cleared.'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to clear cache',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+})->name('cache.clear');
+
 require __DIR__ . '/auth.php';
 require __DIR__ .'/admin.php';

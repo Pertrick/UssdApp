@@ -89,6 +89,20 @@ class AfricasTalkingService
             $ussdSessionService = app(USSDSessionService::class);
             $response = $ussdSessionService->processInput($session, $text);
 
+            // If the input was processed successfully and we're not ending the session,
+            // refresh the session and get the current flow display for the updated flow
+            // This ensures template variables are resolved and silent flows work correctly
+            if ($response['success'] && !($response['session_ended'] ?? false)) {
+                $session->refresh(); // Refresh the session to get updated current_flow_id
+                $display = $ussdSessionService->getCurrentFlowDisplay($session);
+                
+                // Use the display from getCurrentFlowDisplay() which properly handles:
+                // - Template variable resolution with fresh session data
+                // - Silent dynamic flows (continue_without_display)
+                // - Proper flow display after navigation
+                $response = $display;
+            }
+
             // Format response for AfricasTalking
             return $this->formatAfricasTalkingResponse($response);
 

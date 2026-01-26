@@ -118,6 +118,23 @@ class USSDFlow extends Model
      */
     private function replaceTemplateVariables(string $text, USSDSession $session): string
     {
+        // CRITICAL: Refresh session to ensure we have the latest session_data
+        // This is especially important after API calls or input collection that updates session_data
+        $session->refresh();
+        
+        // Force reload session_data from database to ensure we have the absolute latest data
+        // This handles cases where session_data was just updated in the same request
+        $freshSessionData = \DB::table('ussd_sessions')
+            ->where('id', $session->id)
+            ->value('session_data');
+        
+        if ($freshSessionData) {
+            $decodedData = is_string($freshSessionData) ? json_decode($freshSessionData, true) : $freshSessionData;
+            if ($decodedData) {
+                $session->session_data = $decodedData;
+            }
+        }
+        
         $sessionData = $session->session_data ?? [];
         
         $isDynamicFlow = $this->flow_type === 'dynamic';
@@ -226,15 +243,47 @@ class USSDFlow extends Model
             
             // Handle {{session.data.field}} - access nested fields within the data object
             if (str_starts_with($remainingPath, 'data.')) {
-                $dataPath = substr($remainingPath, 5);
-                // First try sessionData directly
+                $dataPath = substr($remainingPath, 5); // e.g., "input_phone" from "data.input_phone"
+                
+                // Special handling for phone-related fields when use_registered_phone is set
+                if (in_array($dataPath, ['input_phone', 'phone', 'phone_number', 'recipient_phone']) && 
+                    isset($sessionData['recipient_type']) && $sessionData['recipient_type'] === 'self') {
+                    return $context['session']['phone_number'] ?? '';
+                }
+                
+                // Try multiple locations where the data might be stored
+                // 1. Direct sessionData key (top level) - most common for input collection
                 $value = data_get($sessionData, $dataPath, null);
-                if ($value !== null) {
+                if ($value !== null && $value !== '') {
                     return is_scalar($value) ? (string) $value : '';
                 }
-                // Fallback to context
+                
+                // 2. Check collected_input
+                $value = data_get($sessionData, "collected_input.{$dataPath}", null);
+                if ($value !== null && $value !== '') {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                // 3. Check selected_item_data
+                $value = data_get($sessionData, "selected_item_data.{$dataPath}", null);
+                if ($value !== null && $value !== '') {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                // 4. Check collected_inputs (plural, for backward compatibility)
+                $value = data_get($sessionData, "collected_inputs.{$dataPath}", null);
+                if ($value !== null && $value !== '') {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                // 5. Fallback to context session.data
                 $contextData = $context['session']['data'] ?? [];
-                return data_get($contextData, $dataPath, '');
+                $value = data_get($contextData, $dataPath, null);
+                if ($value !== null && $value !== '') {
+                    return is_scalar($value) ? (string) $value : '';
+                }
+                
+                return '';
             }
             
             // For other session.* paths, try context first, then sessionData

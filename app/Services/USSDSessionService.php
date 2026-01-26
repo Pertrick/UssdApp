@@ -602,6 +602,24 @@ class USSDSessionService
      */
     public function getCurrentFlowDisplay(USSDSession $session): array
     {
+        // CRITICAL: Refresh session to ensure we have the latest current_flow_id and session_data
+        // This is especially important after API calls, input collection, or navigation that updates the flow
+        $session->refresh();
+        $session->load('currentFlow');
+        
+        // Also ensure we have the latest session_data from database
+        // This handles cases where session_data was just updated in the same request
+        $freshSessionData = \DB::table('ussd_sessions')
+            ->where('id', $session->id)
+            ->value('session_data');
+        
+        if ($freshSessionData) {
+            $decodedData = is_string($freshSessionData) ? json_decode($freshSessionData, true) : $freshSessionData;
+            if ($decodedData) {
+                $session->session_data = $decodedData;
+            }
+        }
+        
         $currentFlow = $session->currentFlow;
         
         if (!$currentFlow) {
