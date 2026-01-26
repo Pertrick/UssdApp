@@ -244,6 +244,18 @@ class USSDSessionService
                 $this->simulateBilling($session);
             }
 
+            // Refresh session to get latest data (important after API errors)
+            $session->refresh();
+            $session->load('currentFlow');
+            
+            Log::info('processInput - After session refresh', [
+                'session_id' => $session->id,
+                'current_flow_id' => $session->current_flow_id,
+                'session_data_keys' => array_keys($session->session_data ?? []),
+                'has_last_api_error' => isset(($session->session_data ?? [])['last_api_error']),
+                'has_last_input_type' => isset(($session->session_data ?? [])['last_input_type_before_api']),
+            ]);
+
             $currentFlow = $session->currentFlow;
             
             if (!$currentFlow) {
@@ -252,6 +264,94 @@ class USSDSessionService
 
             // Check if we're in an input collection state
             $sessionData = $session->session_data ?? [];
+            
+            // Log session state for debugging
+            Log::info('processInput - Session state check', [
+                'session_id' => $session->id,
+                'current_flow_id' => $session->current_flow_id,
+                'input' => $input,
+                'has_last_api_error' => isset($sessionData['last_api_error']),
+                'has_last_input_type' => isset($sessionData['last_input_type_before_api']),
+                'collecting_input' => $sessionData['collecting_input'] ?? false,
+                'in_error_flow' => $sessionData['in_error_flow'] ?? false,
+                'input_retries' => $sessionData['input_retries'] ?? [],
+                'last_api_error' => $sessionData['last_api_error'] ?? null,
+                'last_input_type_before_api' => $sessionData['last_input_type_before_api'] ?? null,
+                'last_input_flow_id' => $sessionData['last_input_flow_id'] ?? null,
+            ]);
+            
+            // CRITICAL: Check if we're retrying after an API error BEFORE processing input
+            // This must happen BEFORE checking collecting_input, because after API error,
+            // collecting_input might be false but we still need to check retry exhaustion
+            $lastApiError = $sessionData['last_api_error'] ?? null;
+            $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+            
+            Log::info('processInput - Retry check conditions', [
+                'session_id' => $session->id,
+                'lastApiError_exists' => !is_null($lastApiError),
+                'lastInputType_exists' => !is_null($lastInputType),
+                'lastApiError' => $lastApiError,
+                'lastInputType' => $lastInputType,
+                'will_check_retry' => ($lastApiError && $lastInputType),
+            ]);
+            
+            if ($lastApiError && $lastInputType) {
+                // Extract last selection to check retry exhaustion
+                $lastSelection = $this->extractLastSelection($input);
+                
+                // We're in an error state after an API call that followed input collection
+                // Check if retries are exhausted BEFORE processing the input
+                $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
+                if ($maxRetries > 0) {
+                    // Use the same retry key format as handleApiCallError
+                    $optionValue = $lastApiError['option_value'] ?? 'api_call';
+                    $retryKey = $lastApiError['flow_id'] . '_' . $optionValue;
+                    $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+                    
+                    Log::info('Checking API retry exhaustion before processing input', [
+                        'session_id' => $session->id,
+                        'last_selection' => $lastSelection,
+                        'last_input_type' => $lastInputType,
+                        'retry_key' => $retryKey,
+                        'retry_count' => $retryCount,
+                        'max_retries' => $maxRetries,
+                        'retry_exhausted' => ($retryCount >= $maxRetries),
+                        'last_api_error' => $lastApiError,
+                        'all_input_retries' => $sessionData['input_retries'] ?? [],
+                    ]);
+                    
+                    // Check if retry limit exceeded
+                    if ($retryCount >= $maxRetries) {
+                        Log::warning('API retry limit exceeded - ending session', [
+                            'session_id' => $session->id,
+                            'retry_count' => $retryCount,
+                            'max_retries' => $maxRetries,
+                            'retry_key' => $retryKey,
+                        ]);
+                        
+                        $this->logSessionAction($session, 'max_retries_exceeded', $lastSelection, 'Maximum retry attempts exceeded for API call', 'error');
+                        
+                        // Get the error message from the last API error
+                        $errorMessage = $sessionData['api_error_message'] ?? $sessionData['error_message'] ?? 'An error occurred. Please try again.';
+                        
+                        // End session gracefully with error message
+                        $closingMessage = $errorMessage . "\n\nThank you for using our service.";
+                        return $this->handleEndSession($session, null, $closingMessage, true);
+                    } else {
+                        Log::info('API retry limit not exceeded - allowing retry', [
+                            'session_id' => $session->id,
+                            'retry_count' => $retryCount,
+                            'max_retries' => $maxRetries,
+                        ]);
+                    }
+                }
+            } else {
+                Log::info('processInput - Skipping retry check', [
+                    'session_id' => $session->id,
+                    'reason' => !$lastApiError ? 'no_last_api_error' : (!$lastInputType ? 'no_last_input_type' : 'unknown'),
+                ]);
+            }
+            
             $isCollectingInput = $sessionData['collecting_input'] ?? false;
             $inputType = $sessionData['input_type'] ?? null;
             $inputPrompt = $sessionData['input_prompt'] ?? null;
@@ -371,7 +471,7 @@ class USSDSessionService
             
             // Get session data and check retry limits
             $sessionData = $session->session_data ?? [];
-            $maxRetries = config('ussd.max_input_retries', 3);
+            $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
             
             // Track retry attempts per input (keyed by flow_id and input value)
             $retryKey = $currentFlow->id . '_' . $lastSelection;
@@ -393,7 +493,6 @@ class USSDSessionService
             }
             
             // Check if we're in an error flow state and user wants to retry
-            $lastApiError = $sessionData['last_api_error'] ?? null;
             $inErrorFlow = $sessionData['in_error_flow'] ?? false;
             
             // If in error flow and user selects the same option that failed, retry it
@@ -654,6 +753,31 @@ class USSDSessionService
         
         // Handle static flow (existing logic)
         
+        $sessionData = $session->session_data ?? [];
+        $isCollectingInput = $sessionData['collecting_input'] ?? false;
+        $inputPrompt = $sessionData['input_prompt'] ?? null;
+        $apiErrorMessage = $sessionData['api_error_message'] ?? null;
+        $lastApiError = $sessionData['last_api_error'] ?? null;
+        
+        // If we're collecting input, show the input prompt (with error message if present)
+        if ($isCollectingInput && $inputPrompt) {
+            $message = $inputPrompt;
+            
+            // If there's an API error message and we're retrying, prepend it
+            if ($lastApiError && $apiErrorMessage) {
+                $message = $apiErrorMessage . "\n\n" . $inputPrompt;
+            }
+            
+            return [
+                'success' => true,
+                'message' => $message,
+                'flow_title' => $currentFlow->getProcessedTitle($session),
+                'flow_description' => $currentFlow->description,
+                'requires_input' => true,
+                'current_flow' => $currentFlow,
+            ];
+        }
+        
         // Check if this flow has ONLY input actions - if so, auto-trigger the first one
         // This provides better UX: if all options are inputs, skip the menu and go straight to input
         $options = $currentFlow->options()->where('is_active', true)->orderBy('sort_order')->get();
@@ -691,27 +815,24 @@ class USSDSessionService
         $result = $dynamicProcessor->processDynamicFlow($flow, $session);
         
         if (!$result['success']) {
-            // Check retry policy - end session if retries disabled
-            $retryCheck = $this->checkAndHandleApiRetryPolicy(
-                $session,
-                $result['message'] ?? 'Dynamic flow processing failed',
-                $result['title'] ?? $flow->title,
-                $flow->description
-            );
+            // Create a temporary option to use with handleApiCallError
+            // This allows us to properly set last_api_error for retry tracking
+            $tempOption = new USSDFlowOption();
+            $tempOption->action_type = 'external_api_call';
+            $tempOption->action_data = $flow->dynamic_config ?? [];
+            $tempOption->id = null; // No specific option ID for dynamic flows
             
-            if ($retryCheck !== null) {
-                return $retryCheck;
-            }
-            
-            // Retries enabled - return error but allow retry
-            return [
+            // Extract API result from dynamic processor result
+            // The dynamic processor returns error info, but we need to format it like handleApiCallError expects
+            $apiResult = [
                 'success' => false,
                 'message' => $result['message'] ?? 'Dynamic flow processing failed',
-                'flow_title' => $result['title'] ?? $flow->title,
-                'flow_description' => $flow->description,
-                'requires_input' => false,
-                'current_flow' => $flow,
+                'api_error_message' => $result['message'] ?? 'Dynamic flow processing failed',
+                'error' => $result['error'] ?? 'API call failed',
             ];
+            
+            // Call handleApiCallError to properly set last_api_error and handle retries
+            return $this->handleApiCallError($session, $tempOption, null, $apiResult);
         }
         
         // Store the dynamic options and cache the API data in session for pagination
@@ -942,7 +1063,7 @@ class USSDSessionService
         $dynamicOptions = $sessionData['dynamic_options'] ?? [];
         
         // Track retry attempts for dynamic flow selections
-        $maxRetries = config('ussd.max_input_retries', 3);
+        $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
         $retryKey = $flow->id . '_' . $input;
         $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
         
@@ -1396,6 +1517,12 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
      */
     private function handleApiCall(USSDSession $session, USSDFlowOption $option): array
     {
+        Log::info('handleApiCall - ENTRY', [
+            'session_id' => $session->id,
+            'current_flow_id' => $session->current_flow_id,
+            'option_action_type' => $option->action_type ?? null,
+        ]);
+        
         $apiData = $option->action_data ?? [];
         if (is_object($apiData)) {
             $apiData = (array) $apiData;
@@ -1431,8 +1558,18 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             $externalApiService = new \App\Services\ExternalAPIService($this->loggingService);
             $result = $externalApiService->executeApiCall($apiConfig, $session, $userInput);
             
+            Log::info('handleApiCall - API call result', [
+                'session_id' => $session->id,
+                'success' => $result['success'] ?? false,
+                'will_call_handleApiCallError' => !($result['success'] ?? false),
+            ]);
+            
             if (!$result['success']) {
-
+                Log::info('handleApiCall - Calling handleApiCallError', [
+                    'session_id' => $session->id,
+                    'api_result' => $result,
+                ]);
+                
                 return $this->handleApiCallError($session, $option, null, $result);
             }
             
@@ -1740,6 +1877,14 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
      */
     private function handleApiCallError(USSDSession $session, USSDFlowOption $option, ?\Exception $exception = null, ?array $apiResult = null): array
     {
+        Log::info('handleApiCallError - ENTRY', [
+            'session_id' => $session->id,
+            'current_flow_id' => $session->current_flow_id,
+            'has_exception' => !is_null($exception),
+            'has_api_result' => !is_null($apiResult),
+            'api_result_success' => $apiResult['success'] ?? null,
+        ]);
+        
         $apiData = $option->action_data ?? [];
         if (is_object($apiData)) {
             $apiData = (array) $apiData;
@@ -1810,7 +1955,7 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         // Track retry attempts for API calls
         $retryKey = $session->current_flow_id . '_' . ($option->option_value ?? 'api_call');
         $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
-        $maxRetries = config('ussd.max_input_retries', 3);
+        $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
         
         // Check if retry limit exceeded for this API call
         if ($maxRetries > 0 && $retryCount >= $maxRetries) {
@@ -1833,6 +1978,20 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
             'api_configuration_id' => $apiData['api_configuration_id'] ?? null,
             'retry_count' => $retryCount + 1,
         ];
+        
+        Log::info('handleApiCallError - Setting retry data', [
+            'session_id' => $session->id,
+            'retry_key' => $retryKey,
+            'retry_count' => $retryCount + 1,
+            'max_retries' => $maxRetries,
+            'max_retries_type' => gettype($maxRetries),
+            'config_value' => config('ussd.max_input_retries', 3),
+            'config_value_type' => gettype(config('ussd.max_input_retries', 3)),
+            'last_api_error' => $sessionData['last_api_error'],
+            'last_input_type_before_api' => $sessionData['last_input_type_before_api'] ?? null,
+            'last_input_flow_id' => $sessionData['last_input_flow_id'] ?? null,
+            'all_input_retries' => $sessionData['input_retries'],
+        ]);
         
         // Also store dynamic flow error info if this came from a dynamic flow selection
         $previousFlowId = $sessionData['previous_flow_id'] ?? null;
@@ -2010,6 +2169,15 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $previousFlowId = $sessionData['previous_flow_id'] ?? null;
         $lastDynamicSelection = $sessionData['last_dynamic_selection_index'] ?? null;
         
+        Log::info('handleApiCallError - PRIORITY 3 check', [
+            'session_id' => $session->id,
+            'previous_flow_id' => $previousFlowId,
+            'last_dynamic_selection_index' => $lastDynamicSelection,
+            'will_navigate_to_dynamic' => ($previousFlowId && $lastDynamicSelection),
+            'last_api_error_before_update' => $sessionData['last_api_error'] ?? null,
+            'last_input_type_before_update' => $sessionData['last_input_type_before_api'] ?? null,
+        ]);
+        
         if ($previousFlowId && $lastDynamicSelection) {
             $previousFlow = USSDFlow::find($previousFlowId);
             if ($previousFlow && $previousFlow->flow_type === 'dynamic' && $previousFlow->is_active) {
@@ -2018,6 +2186,17 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                     'flow_id' => $previousFlowId,
                     'option_index' => $lastDynamicSelection,
                 ];
+                
+                Log::info('handleApiCallError - PRIORITY 3 navigating back to dynamic flow', [
+                    'session_id' => $session->id,
+                    'previous_flow_id' => $previousFlowId,
+                    'current_flow_id_before' => $session->current_flow_id,
+                    'last_api_error_preserved' => $sessionData['last_api_error'] ?? null,
+                    'last_input_type_preserved' => $sessionData['last_input_type_before_api'] ?? null,
+                    'input_retries_preserved' => $sessionData['input_retries'] ?? [],
+                    'session_data_keys_before_update' => array_keys($sessionData),
+                ]);
+                
                 $session->update(['session_data' => $sessionData, 'current_flow_id' => $previousFlowId]);
                 $session->refresh();
                 $session->load('currentFlow');
@@ -2025,6 +2204,15 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                 // Regenerate dynamic flow display
                 $flowDisplay = $this->getCurrentFlowDisplay($session);
                 $fullMessage = $errorMessage . "\n\n" . $flowDisplay['message'];
+                
+                Log::info('handleApiCallError - PRIORITY 3 after navigation', [
+                    'session_id' => $session->id,
+                    'current_flow_id_after' => $session->current_flow_id,
+                    'session_data_keys_after_refresh' => array_keys($session->session_data ?? []),
+                    'has_last_api_error_after' => isset(($session->session_data ?? [])['last_api_error']),
+                    'has_last_input_type_after' => isset(($session->session_data ?? [])['last_input_type_before_api']),
+                    'last_api_error_after' => ($session->session_data ?? [])['last_api_error'] ?? null,
+                ]);
                 
                 return [
                     'success' => false,
@@ -2404,12 +2592,66 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $sessionData = $session->session_data ?? [];
         $actionData = $sessionData['input_action_data'] ?? [];
         
+        // CRITICAL: If we're retrying after an API error, restore state BEFORE processing input
+        // This ensures next_flow_id and action_data are available for the retry
+        $lastApiError = $sessionData['last_api_error'] ?? null;
+        $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+        $lastInputFlowId = $sessionData['last_input_flow_id'] ?? null;
+        $lastInputActionData = $sessionData['last_input_action_data'] ?? [];
+        $lastInputOptionId = $sessionData['last_input_option_id'] ?? null;
+        
+        if ($lastApiError && $lastInputType && $lastInputFlowId && $lastInputFlowId == $session->current_flow_id) {
+            // We're retrying the same flow after an API error
+            // Restore state BEFORE checking retry exhaustion
+            $lastNextFlowAfterInput = $sessionData['last_next_flow_after_input'] ?? null;
+            if ($lastNextFlowAfterInput) {
+                $sessionData['next_flow_after_input'] = $lastNextFlowAfterInput;
+            } elseif (isset($lastInputActionData['next_flow_id'])) {
+                $sessionData['next_flow_after_input'] = $lastInputActionData['next_flow_id'];
+            }
+            
+            // Restore action_data and input_option_id
+            if (!empty($lastInputActionData)) {
+                $sessionData['input_action_data'] = $lastInputActionData;
+                $actionData = $lastInputActionData; // Update local variable
+            }
+            if ($lastInputOptionId) {
+                $sessionData['input_option_id'] = $lastInputOptionId;
+            }
+            
+            // Update session with restored state
+            $session->update(['session_data' => $sessionData]);
+            $sessionData = $session->session_data ?? []; // Refresh local copy
+            
+            // Check if API call retries are exhausted
+            $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
+            if ($maxRetries > 0) {
+                // Use the same retry key format as handleApiCallError
+                // The retry key is based on the flow_id and option_value from the failed API call
+                $optionValue = $lastApiError['option_value'] ?? 'api_call';
+                $retryKey = $lastApiError['flow_id'] . '_' . $optionValue;
+                $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
+                
+                // Check if retry limit exceeded BEFORE processing the new input
+                if ($retryCount >= $maxRetries) {
+                    $this->logSessionAction($session, 'max_retries_exceeded', $input, 'Maximum retry attempts exceeded for API call', 'error');
+                    
+                    // Get the error message from the last API error
+                    $errorMessage = $sessionData['api_error_message'] ?? $sessionData['error_message'] ?? 'An error occurred. Please try again.';
+                    
+                    // End session gracefully with error message
+                    $closingMessage = $errorMessage . "\n\nThank you for using our service.";
+                    return $this->handleEndSession($session, null, $closingMessage, true);
+                }
+            }
+        }
+        
         // Validate input based on type
         $validationResult = $this->validateInput($input, $inputType, $sessionData);
         
         if (!$validationResult['valid']) {
             // Track retry attempts for input validation
-            $maxRetries = config('ussd.max_input_retries', 3);
+            $maxRetries = (int) config('ussd.max_input_retries', 3); // Ensure it's an integer
             $retryKey = $session->current_flow_id . '_input_' . $inputType;
             $retryCount = $sessionData['input_retries'][$retryKey] ?? 0;
             
@@ -2479,6 +2721,18 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $sessionData['last_input_action_data'] = $actionData;
         $sessionData['last_input_flow_id'] = $session->current_flow_id;
         $sessionData['last_input_option_id'] = $sessionData['input_option_id'] ?? null; // Store the option ID for exact retry
+        // CRITICAL: Store next_flow_after_input so it can be restored on retry
+        $sessionData['last_next_flow_after_input'] = $sessionData['next_flow_after_input'] ?? null;
+        
+        Log::info('handleInputCollection - Storing input data before API call', [
+            'session_id' => $session->id,
+            'input_type' => $inputType,
+            'input' => $input,
+            'current_flow_id' => $session->current_flow_id,
+            'last_input_type_before_api' => $sessionData['last_input_type_before_api'],
+            'last_input_flow_id' => $sessionData['last_input_flow_id'],
+        ]);
+        
         $sessionData['input_type'] = null;
         $sessionData['input_prompt'] = null;
         $sessionData['input_action_data'] = null;
@@ -2492,9 +2746,23 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         $endSessionAfterInput = $actionData['end_session_after_input'] ?? false;
         $afterInputAction = $actionData['after_input_action'] ?? null;
         
+        Log::info('handleInputCollection - Checking for API call trigger', [
+            'session_id' => $session->id,
+            'after_input_action' => $afterInputAction,
+            'next_flow_id' => $nextFlowId,
+            'end_session_after_input' => $endSessionAfterInput,
+            'action_data' => $actionData,
+        ]);
+        
         // Check if we need to trigger an API call after input collection
         if ($afterInputAction === 'api_call' || $afterInputAction === 'external_api_call') {
             $apiConfigId = $actionData['api_configuration_id'] ?? null;
+            
+            Log::info('handleInputCollection - About to trigger API call', [
+                'session_id' => $session->id,
+                'after_input_action' => $afterInputAction,
+                'api_config_id' => $apiConfigId,
+            ]);
             
             if ($apiConfigId) {
                 // Create a temporary option to trigger the API call
@@ -2509,6 +2777,11 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                     'continue_without_display' => $actionData['continue_without_display'] ?? false,
                     'next_flow_id' => $nextFlowId,
                 ];
+                
+                Log::info('handleInputCollection - Calling handleApiCall', [
+                    'session_id' => $session->id,
+                    'temp_option_action_type' => $tempOption->action_type,
+                ]);
                 
                 // Trigger the API call
                 return $this->handleApiCall($session, $tempOption);
@@ -2529,11 +2802,29 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
         } elseif ($nextFlowId) {
             $nextFlow = USSDFlow::find($nextFlowId);
             if ($nextFlow && $nextFlow->is_active) {
+                Log::info('handleInputCollection - Navigating to next flow after input', [
+                    'session_id' => $session->id,
+                    'next_flow_id' => $nextFlowId,
+                    'next_flow_type' => $nextFlow->flow_type,
+                    'next_flow_options_count' => $nextFlow->options()->where('is_active', true)->count(),
+                ]);
+                
                 $session->update(['current_flow_id' => $nextFlow->id]);
                 $sessionData['next_flow_after_input'] = null;
+                
+                // If we're retrying after an API error, preserve the error message
+                $lastApiError = $sessionData['last_api_error'] ?? null;
+                $apiErrorMessage = $sessionData['api_error_message'] ?? null;
+                
                 $session->update(['session_data' => $sessionData]);
                 
                 $menuText = $this->replacePlaceholders($nextFlow->menu_text, $sessionData);
+                
+                // If there's an API error message and we're in a retry scenario, prepend it
+                // Show error message if lastApiError exists (regardless of retrying_input_after_api_error flag)
+                if ($lastApiError && $apiErrorMessage) {
+                    $menuText = $apiErrorMessage . "\n\n" . $menuText;
+                }
                 
                 return [
                     'success' => true,
@@ -2548,7 +2839,130 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
 
         // If no next flow specified, return to current flow with success message
         $currentFlow = $session->currentFlow;
-        $successMessage = $actionData['success_message'] ?? "✓ Data saved successfully!\n\n" . $currentFlow->menu_text;
+        
+        // If we're retrying after an API error, preserve the error message
+        $lastApiError = $sessionData['last_api_error'] ?? null;
+        $apiErrorMessage = $sessionData['api_error_message'] ?? null;
+        $isRetryingAfterError = ($lastApiError && ($sessionData['retrying_input_after_api_error'] ?? false));
+        
+        Log::info('handleInputCollection - No next flow, checking error message', [
+            'session_id' => $session->id,
+            'has_last_api_error' => !is_null($lastApiError),
+            'has_api_error_message' => !is_null($apiErrorMessage),
+            'retrying_input_after_api_error' => $sessionData['retrying_input_after_api_error'] ?? false,
+            'isRetryingAfterError' => $isRetryingAfterError,
+        ]);
+        
+        // If there's an API error, we need to restore collecting_input state
+        // so that getCurrentFlowDisplay can show the error message correctly
+        // Note: State restoration (next_flow_after_input, action_data, etc.) was already done at the start of the function
+        if ($lastApiError && $apiErrorMessage) {
+            $lastInputType = $sessionData['last_input_type_before_api'] ?? null;
+            $lastInputFlowId = $sessionData['last_input_flow_id'] ?? null;
+            $lastInputOptionId = $sessionData['last_input_option_id'] ?? null;
+            
+            // Restore input collection state if we're retrying
+            if ($lastInputType && $lastInputFlowId && $session->current_flow_id == $lastInputFlowId) {
+                $sessionData['collecting_input'] = true;
+                $sessionData['input_type'] = $lastInputType;
+                
+                // Get the correct prompt from the original input option if available
+                // Always try to get it from the option first, don't trust stored values
+                $correctPrompt = null;
+                
+                Log::info('handleInputCollection - Attempting to retrieve prompt from option', [
+                    'session_id' => $session->id,
+                    'last_input_option_id' => $lastInputOptionId,
+                    'last_input_option_id_type' => gettype($lastInputOptionId),
+                    'last_input_option_id_empty' => empty($lastInputOptionId),
+                ]);
+                
+                if ($lastInputOptionId) {
+                    $inputOption = \App\Models\USSDFlowOption::find($lastInputOptionId);
+                    if ($inputOption && $inputOption->is_active) {
+                        $actionDataFromOption = is_array($inputOption->action_data) 
+                            ? $inputOption->action_data 
+                            : (is_string($inputOption->action_data) ? json_decode($inputOption->action_data, true) : []);
+                        $correctPrompt = $actionDataFromOption['prompt'] ?? $this->getDefaultPrompt($lastInputType, $inputOption->option_text);
+                        
+                        Log::info('handleInputCollection - Retrieved prompt from option', [
+                            'session_id' => $session->id,
+                            'option_id' => $lastInputOptionId,
+                            'option_text' => $inputOption->option_text,
+                            'prompt_from_action_data' => $actionDataFromOption['prompt'] ?? 'not_set',
+                            'default_prompt' => $this->getDefaultPrompt($lastInputType, $inputOption->option_text),
+                            'final_prompt' => $correctPrompt,
+                        ]);
+                    } else {
+                        Log::warning('handleInputCollection - Option not found or inactive', [
+                            'session_id' => $session->id,
+                            'option_id' => $lastInputOptionId,
+                            'option_exists' => $inputOption ? true : false,
+                            'option_active' => $inputOption ? $inputOption->is_active : false,
+                        ]);
+                    }
+                } else {
+                    Log::info('handleInputCollection - No last_input_option_id, using fallback', [
+                        'session_id' => $session->id,
+                        'last_input_option_id' => $lastInputOptionId,
+                    ]);
+                }
+                
+                // Use the correct prompt from option, or use default prompt based on input type
+                // Don't use stored $sessionData['input_prompt'] as it might be corrupted
+                if ($correctPrompt) {
+                    $sessionData['input_prompt'] = $correctPrompt;
+                } else {
+                    // Fallback to default prompt based on input type
+                    $sessionData['input_prompt'] = $this->getDefaultPrompt($lastInputType, 'input');
+                }
+                
+                $session->update(['session_data' => $sessionData]);
+                
+                Log::info('handleInputCollection - Restored input collection state for retry', [
+                    'session_id' => $session->id,
+                    'input_type' => $lastInputType,
+                    'has_action_data' => !empty($actionData),
+                    'after_input_action' => $actionData['after_input_action'] ?? null,
+                    'api_config_id' => $actionData['api_configuration_id'] ?? null,
+                    'prompt_source' => $correctPrompt ? 'from_option' : 'from_fallback',
+                    'restored_prompt' => $sessionData['input_prompt'],
+                ]);
+            }
+        }
+        
+        // Use last_input_action_data if available (for retry scenarios), otherwise use actionData
+        $effectiveActionData = !empty($lastInputActionData) ? $lastInputActionData : $actionData;
+        
+        $successMessage = $effectiveActionData['success_message'] ?? "✓ Data saved successfully!\n\n" . $currentFlow->menu_text;
+        
+        // If retrying after API error, show error message instead of success message
+        // Also check if we have last_api_error even if retrying_input_after_api_error flag is not set
+        Log::info('handleInputCollection - Checking error message condition', [
+            'session_id' => $session->id,
+            'isRetryingAfterError' => $isRetryingAfterError,
+            'lastApiError_exists' => !is_null($lastApiError),
+            'apiErrorMessage' => $apiErrorMessage,
+            'apiErrorMessage_empty' => empty($apiErrorMessage),
+            'condition_result' => (($isRetryingAfterError || $lastApiError) && $apiErrorMessage),
+        ]);
+        
+        if (($isRetryingAfterError || $lastApiError) && $apiErrorMessage) {
+            $inputPrompt = $effectiveActionData['prompt'] ?? $sessionData['input_prompt'] ?? $currentFlow->menu_text ?? 'Please try again.';
+            $successMessage = $apiErrorMessage . "\n\n" . $inputPrompt;
+            
+            Log::info('handleInputCollection - Error message will be shown', [
+                'session_id' => $session->id,
+                'error_message' => $apiErrorMessage,
+                'input_prompt' => $inputPrompt,
+                'final_message' => $successMessage,
+            ]);
+        } else {
+            Log::info('handleInputCollection - Error message NOT shown', [
+                'session_id' => $session->id,
+                'reason' => !$isRetryingAfterError && !$lastApiError ? 'no_error_state' : (empty($apiErrorMessage) ? 'empty_error_message' : 'unknown'),
+            ]);
+        }
         
         return [
             'success' => true,

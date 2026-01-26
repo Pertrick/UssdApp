@@ -92,15 +92,50 @@ class AfricasTalkingService
             // If the input was processed successfully and we're not ending the session,
             // refresh the session and get the current flow display for the updated flow
             // This ensures template variables are resolved and silent flows work correctly
+            // BUT: If the response already has a complete message from handleInputCollection
+            // (especially when next_flow_id is null and there's an error), preserve it
             if ($response['success'] && !($response['session_ended'] ?? false)) {
-                $session->refresh(); // Refresh the session to get updated current_flow_id
-                $display = $ussdSessionService->getCurrentFlowDisplay($session);
+                // Check if this response is from handleInputCollection with no next_flow_id
+                // In this case, the message is already complete and should not be overwritten
+                // We can detect this by checking if the response has a message and requires_input
+                // AND if the current flow is in input collection mode
+                $session->refresh();
+                $sessionData = $session->session_data ?? [];
+                $isCollectingInput = $sessionData['collecting_input'] ?? false;
+                $hasApiError = isset($sessionData['last_api_error']) && isset($sessionData['api_error_message']);
                 
-                // Use the display from getCurrentFlowDisplay() which properly handles:
-                // - Template variable resolution with fresh session data
-                // - Silent dynamic flows (continue_without_display)
-                // - Proper flow display after navigation
-                $response = $display;
+                // If we're collecting input and there's an API error, the response from handleInputCollection
+                // already has the correct error message, so don't overwrite it
+                $shouldPreserveResponse = $isCollectingInput && 
+                                         $hasApiError && 
+                                         isset($response['message']) && 
+                                         !empty($response['message']);
+                
+                \Log::info('AfricasTalkingService - Response preservation check', [
+                    'session_id' => $session->id,
+                    'isCollectingInput' => $isCollectingInput,
+                    'hasApiError' => $hasApiError,
+                    'response_has_message' => isset($response['message']) && !empty($response['message']),
+                    'shouldPreserveResponse' => $shouldPreserveResponse,
+                    'response_message_preview' => isset($response['message']) ? substr($response['message'], 0, 100) : 'no_message',
+                ]);
+                
+                // If response should be preserved (input collection with error), use it directly
+                // Otherwise, get the current flow display
+                if (!$shouldPreserveResponse) {
+                    $display = $ussdSessionService->getCurrentFlowDisplay($session);
+                    
+                    // Use the display from getCurrentFlowDisplay() which properly handles:
+                    // - Template variable resolution with fresh session data
+                    // - Silent dynamic flows (continue_without_display)
+                    // - Proper flow display after navigation
+                    $response = $display;
+                } else {
+                    \Log::info('AfricasTalkingService - Preserving response from handleInputCollection', [
+                        'session_id' => $session->id,
+                        'message_length' => strlen($response['message'] ?? ''),
+                    ]);
+                }
             }
 
             // Format response for AfricasTalking
