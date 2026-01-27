@@ -158,7 +158,10 @@ class AfricasTalkingService
     protected function getOrCreateSession(USSD $ussd, string $sessionId, string $phoneNumber, bool $isFirstRequest = false): USSDSession
     {
         // SECURITY: Validate session belongs to correct USSD if it exists
-        $session = USSDSession::where('session_id', $sessionId)->first();
+        // CRITICAL: Use lockForUpdate() to prevent race conditions with concurrent requests
+        $session = USSDSession::where('session_id', $sessionId)
+            ->lockForUpdate()
+            ->first();
         
         if ($session) {
             // Verify session belongs to the correct USSD

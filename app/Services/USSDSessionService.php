@@ -75,10 +75,12 @@ class USSDSessionService
 
         if ($sessionId) {
             // SECURITY: Validate session belongs to correct USSD
+            // CRITICAL: Use lockForUpdate() to prevent race conditions with concurrent requests
             $existingSession = USSDSession::where('session_id', $sessionId)
                 ->where('ussd_id', $ussd->id) // SECURITY: Ensure session belongs to this USSD
                 ->where('status', 'active')
                 ->where('expires_at', '>', now())
+                ->lockForUpdate()
                 ->first();
 
             if ($existingSession) {
@@ -217,6 +219,16 @@ class USSDSessionService
         $startTime = microtime(true);
         
         try {
+            // CRITICAL: Lock session to prevent race conditions with concurrent requests
+            // Reload session with lock to ensure we have the latest data and exclusive access
+            $session = USSDSession::where('id', $session->id)
+                ->lockForUpdate()
+                ->first();
+            
+            if (!$session) {
+                throw new \Exception('Session not found or expired');
+            }
+            
             // SECURITY: Validate session belongs to correct USSD
             if (!$session->ussd || !$session->ussd->is_active) {
                 throw new \Exception('Invalid or inactive USSD service');
@@ -244,8 +256,7 @@ class USSDSessionService
                 $this->simulateBilling($session);
             }
 
-            // Refresh session to get latest data (important after API errors)
-            $session->refresh();
+            // Load current flow (session already refreshed with lock)
             $session->load('currentFlow');
             
             Log::info('processInput - After session refresh', [

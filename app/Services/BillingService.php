@@ -459,11 +459,15 @@ class BillingService
      */
     protected function logBillingTransaction(USSDSession $session, float $amount): void
     {
+        // Determine display currency symbol (use business billing currency or app default)
+        $business = $session->ussd->business;
+        $currencySymbol = config('app.currency_symbol', '₦');
+
         // You can create a separate transactions table or use activity logs
         \App\Services\ActivityService::log(
             $session->ussd->user_id,
             'session_billed',
-            "Session billed: {$session->phone_number} - \${$amount}",
+            "Session billed: {$session->phone_number} - {$currencySymbol}{$amount}",
             'App\Models\USSDSession',
             $session->id,
             [

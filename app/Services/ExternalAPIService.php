@@ -53,6 +53,36 @@ class ExternalAPIService
             
             return $processedResponse;
             
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            // Handle timeout and connection errors specifically
+            $responseTime = (microtime(true) - $startTime) * 1000;
+            
+            // Update statistics
+            $apiConfig->updateCallStats(false, $responseTime);
+            
+            $isTimeout = str_contains($e->getMessage(), 'timeout') || 
+                        str_contains($e->getMessage(), 'timed out') ||
+                        str_contains($e->getMessage(), 'Connection timed out');
+            
+            $errorMessage = $isTimeout 
+                ? "Service temporarily unavailable. Please try again later."
+                : "Unable to connect to service. Please try again later.";
+            
+            Log::error('API call timeout/connection error', [
+                'api_config_id' => $apiConfig->id,
+                'api_name' => $apiConfig->name,
+                'session_id' => $session->id,
+                'timeout' => $apiConfig->timeout,
+                'response_time_ms' => $responseTime,
+                'is_timeout' => $isTimeout,
+                'error' => $e->getMessage(),
+            ]);
+            
+            $this->logApiCall($apiConfig, $session, $requestData ?? [], null, $responseTime, false, $errorMessage);
+            
+            // Return error response with user-friendly message
+            return $this->handleApiError($apiConfig, new \Exception($errorMessage), null);
+            
         } catch (\Exception $e) {
             // Calculate response time
             $responseTime = (microtime(true) - $startTime) * 1000;
