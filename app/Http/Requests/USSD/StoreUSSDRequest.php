@@ -15,6 +15,27 @@ class StoreUSSDRequest extends FormRequest
     }
 
     /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        // Normalize target_ussd_id: empty string or "null" string -> null
+        $allocations = $this->input('allocations', []);
+        if (is_array($allocations)) {
+            foreach ($allocations as $i => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $tid = $row['target_ussd_id'] ?? null;
+                if ($tid === '' || $tid === 'null') {
+                    $allocations[$i]['target_ussd_id'] = null;
+                }
+            }
+            $this->merge(['allocations' => $allocations]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
@@ -24,7 +45,12 @@ class StoreUSSDRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'description' => 'required|string|max:1000',
-            'pattern' => 'required|string|max:50|unique:ussds,pattern'
+            'pattern' => 'required|string|max:50|unique:ussds,pattern',
+            'is_shared_gateway' => 'boolean',
+            'allocations' => 'nullable|array',
+            'allocations.*.option_value' => 'nullable|string|max:20',
+            'allocations.*.target_ussd_id' => 'nullable|exists:ussds,id',
+            'allocations.*.label' => 'nullable|string|max:100',
         ];
     }
 

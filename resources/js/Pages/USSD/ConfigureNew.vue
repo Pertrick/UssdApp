@@ -98,35 +98,39 @@
     </div>
 
     <div class="py-8">
-      <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
-        <!-- Flows List -->
-        <FlowList
-          :flows="flows"
-          :selected-flow="selectedFlow"
-          :has-unsaved-changes="hasUnsavedChanges()"
-          @add-flow="openAddFlowModal"
-          @select-flow="selectFlow"
-        />
+      <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-5 gap-6">
+        <!-- Flows List (section headers, chips, search, filter) -->
+        <div class="md:col-span-1 w-full min-w-0">
+          <FlowList
+            :flows="flows"
+            :selected-flow="selectedFlow"
+            :has-unsaved-changes="hasUnsavedChanges()"
+            @add-flow="openAddFlowModal"
+            @select-flow="selectFlow"
+          />
+        </div>
 
-        <!-- Flow Editor -->
-        <FlowEditor
-          :flow="selectedFlow"
-          :available-flows="availableFlows"
-          :marketplace-apis="marketplaceApis"
-          :custom-apis="customApis"
-          :has-unsaved-changes="hasUnsavedChanges()"
-          :saving="savingFlow"
-          @update-flow="updateFlow"
-          @update-dynamic-config="updateDynamicConfig"
-          @update-option="updateOption"
-          @update-action-data="updateActionData"
-          @add-option="addOption"
-          @remove-option="removeOption"
-          @save-flow="saveFlow"
-          @cancel-edit="cancelEdit"
-          @delete-flow="openDeleteFlowModal"
-          @open-api-wizard="openAPIConfigurationWizard"
-        />
+        <!-- Flow Editor (vertically scrollable to reduce full-page scroll) -->
+        <div class="md:col-span-4 max-h-[calc(100vh-8rem)] overflow-y-auto">
+          <FlowEditor
+            :flow="selectedFlow"
+            :available-flows="availableFlows"
+            :marketplace-apis="marketplaceApis"
+            :custom-apis="customApis"
+            :has-unsaved-changes="hasUnsavedChanges()"
+            :saving="savingFlow"
+            @update-flow="updateFlow"
+            @update-dynamic-config="updateDynamicConfig"
+            @update-option="updateOption"
+            @update-action-data="updateActionData"
+            @add-option="addOption"
+            @remove-option="removeOption"
+            @save-flow="saveFlow"
+            @cancel-edit="cancelEdit"
+            @delete-flow="openDeleteFlowModal"
+            @open-api-wizard="openAPIConfigurationWizard"
+          />
+        </div>
       </div>
 
       <!-- Add Flow Modal -->
@@ -199,6 +203,7 @@ const currentApiOption = ref(null)
 const flowForm = useForm({
     name: '',
     title: '',
+    section_name: '',
     menu_text: '',
     description: '',
     flow_type: 'static',

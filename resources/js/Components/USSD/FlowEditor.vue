@@ -88,6 +88,19 @@
         <p v-if="errors?.title" class="mt-1 text-sm text-red-600">{{ Array.isArray(errors.title) ? errors.title[0] : errors.title }}</p>
         <p v-else class="mt-1 text-xs text-gray-500">This will appear above the menu options. Supports multiple lines.</p>
       </div>
+
+      <!-- Section name (for grouping in flow list) -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700">Section / group</label>
+        <input 
+          :value="flow.section_name || ''" 
+          @input="updateFlow('section_name', $event.target.value)"
+          type="text"
+          class="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+          placeholder="e.g. MCD – Airtime, Plannet – Electricity (optional)"
+        />
+        <p class="mt-1 text-xs text-gray-500">Used to group flows in the list. Leave blank for &quot;Other&quot;.</p>
+      </div>
       
       <!-- Dynamic Flow Configuration -->
       <DynamicFlowConfig

@@ -71,6 +71,17 @@
               <p v-if="errors.title" class="mt-1 text-sm text-red-600">{{ errors.title }}</p>
               <p class="mt-1 text-xs text-gray-500">This will appear above the menu options (optional)</p>
             </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Section / group (Optional)</label>
+              <input 
+                :value="form.section_name" 
+                @input="updateForm('section_name', $event.target.value)"
+                type="text"
+                :class="[errors.section_name ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500', 'mt-1 block w-full rounded-md shadow-sm sm:text-sm']"
+                placeholder="e.g. MCD – Airtime, Plannet – Electricity"
+              />
+              <p class="mt-1 text-xs text-gray-500">Used to group flows in the list.</p>
+            </div>
             
             <!-- Dynamic Flow Configuration -->
             <DynamicFlowConfig

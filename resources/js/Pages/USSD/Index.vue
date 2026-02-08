@@ -28,6 +28,80 @@
 
                         <!-- USSD List -->
                         <div v-if="filteredUssds.length > 0" class="space-y-4">
+                            <!-- Shared Services Section -->
+                            <div v-if="sharedUssds.length > 0" class="mb-6">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                                    <span class="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
+                                    Shared Services ({{ sharedUssds.length }})
+                                </h4>
+                                <p class="text-xs text-gray-500 mb-3">Gateway USSDs that show a menu of multiple services.</p>
+                                <div class="space-y-4">
+                                    <div
+                                        v-for="ussd in sharedUssds"
+                                        :key="ussd.id"
+                                        class="border-2 border-indigo-200 bg-indigo-50/50 rounded-lg p-6 hover:shadow-md transition-shadow"
+                                    >
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <div class="flex items-center space-x-3 mb-2">
+                                                    <h4 class="text-lg font-semibold text-gray-900">{{ ussd.name }}</h4>
+                                                    <span class="px-2 py-1 text-xs font-medium rounded-full bg-indigo-600 text-white">
+                                                        Shared Gateway
+                                                    </span>
+                                                    <span
+                                                        :class="[
+                                                            'px-2 py-1 text-xs font-medium rounded-full',
+                                                            ussd.is_active
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : 'bg-red-100 text-red-800'
+                                                        ]"
+                                                    >
+                                                        {{ ussd.is_active ? 'Active' : 'Inactive' }}
+                                                    </span>
+                                                </div>
+                                                <p class="text-gray-600 mb-3">{{ ussd.description }}</p>
+                                                <div class="flex items-center space-x-4 text-sm text-gray-500">
+                                                    <span class="font-medium">USSD Code: {{ getCurrentUssdCode(ussd) }}</span>
+                                                    <span>Business: {{ ussd.business?.business_name }}</span>
+                                                    <span>Created: {{ formatDate(ussd.created_at) }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <Link
+                                                    :href="route('ussd.show', ussd.id)"
+                                                    class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                >
+                                                    View
+                                                </Link>
+                                                <Link
+                                                    :href="route('ussd.edit', ussd.id)"
+                                                    class="text-green-600 hover:text-green-800 text-sm font-medium"
+                                                >
+                                                    Edit
+                                                </Link>
+                                                <button
+                                                    @click="toggleStatus(ussd)"
+                                                    :class="[
+                                                        'text-sm font-medium',
+                                                        ussd.is_active
+                                                            ? 'text-orange-600 hover:text-orange-800'
+                                                            : 'text-green-600 hover:text-green-800'
+                                                    ]"
+                                                >
+                                                    {{ ussd.is_active ? 'Deactivate' : 'Activate' }}
+                                                </button>
+                                                <button
+                                                    @click="deleteUSSD(ussd)"
+                                                    class="text-red-600 hover:text-red-800 text-sm font-medium"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Production USSDs Section -->
                             <div v-if="productionUssds.length > 0" class="mb-6">
                                 <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center">
@@ -210,21 +284,24 @@ const props = defineProps({
     }
 })
 
-// Separate USSDs by environment
+// Shared gateway USSDs (own section, not grouped by environment)
+const sharedUssds = computed(() => {
+    return props.ussds.filter(ussd => ussd.is_shared_gateway === true)
+})
+
+// Production USSDs (non-shared only)
 const productionUssds = computed(() => {
-    return props.ussds.filter(ussd => ussd.environment?.name === 'production')
+    return props.ussds.filter(ussd => ussd.environment?.name === 'production' && !ussd.is_shared_gateway)
 })
 
+// Testing USSDs (non-shared only)
 const testingUssds = computed(() => {
-    return props.ussds.filter(ussd => ussd.environment?.name !== 'production')
+    return props.ussds.filter(ussd => ussd.environment?.name !== 'production' && !ussd.is_shared_gateway)
 })
 
-// Show production if any exist, otherwise show only testing
+// Combined for empty state check
 const filteredUssds = computed(() => {
-    if (productionUssds.value.length > 0) {
-        return [...productionUssds.value, ...testingUssds.value]
-    }
-    return testingUssds.value
+    return [...sharedUssds.value, ...productionUssds.value, ...testingUssds.value]
 })
 
 const formatDate = (dateString) => {

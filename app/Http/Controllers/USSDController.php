@@ -161,9 +161,15 @@ class USSDController extends Controller
     public function create()
     {
         $businesses = Auth::user()->businesses()->get();
-        
+        $otherUssds = Auth::user()->ussds()
+            ->where('is_shared_gateway', false)
+            ->with('business')
+            ->orderBy('name')
+            ->get();
+
         return Inertia::render('USSD/Create', [
-            'businesses' => $businesses
+            'businesses' => $businesses,
+            'otherUssds' => $otherUssds,
         ]);
     }
 
@@ -176,6 +182,9 @@ class USSDController extends Controller
         
         // Ensure the business belongs to the authenticated user
         $business = Auth::user()->primaryBusiness;
+        if (!$business) {
+            return redirect()->back()->withErrors(['error' => 'You need a primary business to create USSD services. Please register a business first.']);
+        }
         
         // Get testing environment (default for new USSDs)
         $testingEnvironment = Environment::where('name', EnvironmentType::TESTING->value)->first();
@@ -200,10 +209,26 @@ class USSDController extends Controller
             'business_id' => $business->id,
             'environment_id' => $testingEnvironment->id,
             'is_active' => true,
+            'is_shared_gateway' => $validated['is_shared_gateway'] ?? false,
         ]);
 
         // Create default root flow for USSD
         $ussd->createDefaultRootFlow();
+
+        // Sync shared-code allocations when this USSD is a gateway
+        if ($ussd->is_shared_gateway && !empty($validated['allocations'] ?? [])) {
+            foreach ($validated['allocations'] as $index => $row) {
+                if (empty($row['target_ussd_id']) || ($row['option_value'] ?? '') === '' || ($row['label'] ?? '') === '') {
+                    continue;
+                }
+                $ussd->sharedCodeAllocations()->create([
+                    'option_value' => trim($row['option_value']),
+                    'target_ussd_id' => (int) $row['target_ussd_id'],
+                    'label' => trim($row['label']),
+                    'sort_order' => $index,
+                ]);
+            }
+        }
 
         // Log the activity
         ActivityService::logUSSDCreated(Auth::id(), $ussd->id, $ussd->name);
@@ -237,10 +262,18 @@ class USSDController extends Controller
         $this->ensureUSSDOwnership($ussd);
 
         $businesses = Auth::user()->businesses()->get();
-        
+        // Other USSDs (for shared gateway target dropdown) – same user, exclude this one
+        $otherUssds = Auth::user()->ussds()
+            ->where('id', '!=', $ussd->id)
+            ->where('is_shared_gateway', false)
+            ->with('business')
+            ->orderBy('name')
+            ->get();
+
         return Inertia::render('USSD/Edit', [
-            'ussd' => $ussd->load('business'),
-            'businesses' => $businesses
+            'ussd' => $ussd->load(['business', 'sharedCodeAllocations']),
+            'businesses' => $businesses,
+            'otherUssds' => $otherUssds,
         ]);
     }
 
@@ -253,13 +286,32 @@ class USSDController extends Controller
         $this->ensureUSSDOwnership($ussd);
 
         $validated = $request->validated();
-        
+
         $ussd->update([
             'name' => $validated['name'],
             'description' => $validated['description'],
             'pattern' => $validated['pattern'],
             'business_id' => $validated['business_id'],
+            'is_shared_gateway' => $validated['is_shared_gateway'] ?? false,
         ]);
+
+        // Sync shared-code allocations (only when this USSD is a gateway)
+        if ($ussd->is_shared_gateway && isset($validated['allocations'])) {
+            $ussd->sharedCodeAllocations()->delete();
+            foreach ($validated['allocations'] as $index => $row) {
+                if (empty($row['target_ussd_id']) || $row['option_value'] === '' || $row['label'] === '') {
+                    continue;
+                }
+                $ussd->sharedCodeAllocations()->create([
+                    'option_value' => trim($row['option_value']),
+                    'target_ussd_id' => (int) $row['target_ussd_id'],
+                    'label' => trim($row['label']),
+                    'sort_order' => $index,
+                ]);
+            }
+        } else {
+            $ussd->sharedCodeAllocations()->delete();
+        }
 
         // Log the activity
         ActivityService::logUSSDUpdated(Auth::id(), $ussd->id, $ussd->name);
@@ -369,6 +421,7 @@ class USSDController extends Controller
             $validated = $request->validate([
                 'name' => 'required|string|max:255|min:2',
                 'title' => 'nullable|string|max:255',
+                'section_name' => 'nullable|string|max:100',
                 'description' => 'nullable|string|max:500',
                 'flow_type' => 'required|in:static,dynamic',
                 'dynamic_config' => 'nullable|array',
@@ -456,6 +509,7 @@ class USSDController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255|min:2',
             'title' => 'nullable|string|max:255',
+            'section_name' => 'nullable|string|max:100',
             'menu_text' => 'nullable|string|max:1000',
             'description' => 'nullable|string|max:500',
             'flow_type' => 'required|in:static,dynamic',
@@ -563,6 +617,7 @@ class USSDController extends Controller
         $updateData = [
             'name' => $validated['name'],
             'title' => $validated['title'] ?? null,
+            'section_name' => $validated['section_name'] ?? null,
             'menu_text' => $validated['menu_text'] ?? '',
             'description' => $validated['description'] ?? '',
             'flow_type' => $validated['flow_type'],

@@ -21,6 +21,7 @@ class USSDFlow extends Model
         'is_root',
         'parent_flow_id',
         'sort_order',
+        'section_name',
         'flow_config',
         'is_active',
         'flow_type',

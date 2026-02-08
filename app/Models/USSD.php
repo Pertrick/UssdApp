@@ -21,6 +21,7 @@ class USSD extends Model
         'user_id',
         'business_id',
         'is_active',
+        'is_shared_gateway',
         'environment_id',
         'gateway_provider', // 'africastalking', 'hubtel', 'twilio', etc.
         'gateway_credentials', // JSON encrypted credentials
@@ -37,6 +38,7 @@ class USSD extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_shared_gateway' => 'boolean',
         'monetization_enabled' => 'boolean',
         'gateway_credentials' => 'encrypted:array',
         'session_price' => 'decimal:2',
@@ -83,6 +85,14 @@ class USSD extends Model
     public function flows(): HasMany
     {
         return $this->hasMany(USSDFlow::class, 'ussd_id');
+    }
+
+    /**
+     * Get shared-code allocations when this USSD is the gateway (option → target USSD).
+     */
+    public function sharedCodeAllocations(): HasMany
+    {
+        return $this->hasMany(USSDSharedCodeAllocation::class, 'gateway_ussd_id')->orderBy('sort_order');
     }
 
     /**

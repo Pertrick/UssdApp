@@ -28,7 +28,12 @@ class UpdateUSSDRequest extends FormRequest
             'name' => 'required|string|max:255',
             'description' => 'required|string|max:1000',
             'pattern' => 'required|string|max:50|unique:ussds,pattern,' . $ussdId,
-            'business_id' => 'required|exists:businesses,id'
+            'business_id' => 'required|exists:businesses,id',
+            'is_shared_gateway' => 'boolean',
+            'allocations' => 'nullable|array',
+            'allocations.*.option_value' => 'nullable|string|max:20',
+            'allocations.*.target_ussd_id' => 'nullable|exists:ussds,id',
+            'allocations.*.label' => 'nullable|string|max:100',
         ];
     }
 
@@ -44,6 +49,15 @@ class UpdateUSSDRequest extends FormRequest
                 $business = auth()->user()->businesses()->find($businessId);
                 if (!$business) {
                     $validator->errors()->add('business_id', 'The selected business does not belong to you.');
+                }
+            }
+            // Ensure allocation targets belong to the user
+            $allocations = $this->input('allocations', []);
+            $userUssdIds = auth()->user()->ussds()->pluck('id')->toArray();
+            foreach ($allocations as $i => $row) {
+                $tid = $row['target_ussd_id'] ?? null;
+                if ($tid && !in_array((int) $tid, $userUssdIds, true)) {
+                    $validator->errors()->add("allocations.{$i}.target_ussd_id", 'The selected USSD service does not belong to you.');
                 }
             }
         });
