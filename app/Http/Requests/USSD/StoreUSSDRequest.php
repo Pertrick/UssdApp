@@ -47,6 +47,7 @@ class StoreUSSDRequest extends FormRequest
             'description' => 'required|string|max:1000',
             'pattern' => 'required|string|max:50|unique:ussds,pattern',
             'is_shared_gateway' => 'boolean',
+            'is_single_shot' => 'boolean',
             'allocations' => 'nullable|array',
             'allocations.*.option_value' => 'nullable|string|max:20',
             'allocations.*.target_ussd_id' => 'nullable|exists:ussds,id',

@@ -173,6 +173,18 @@
                                 <ErrorMessage name="pattern" class="mt-2 text-sm text-red-600" />
                             </div>
 
+                            <!-- Single-shot -->
+                            <div class="border-t border-gray-200 pt-6">
+                                <label class="flex items-start p-4 rounded-lg border-2 cursor-pointer transition-colors"
+                                    :class="form.is_single_shot ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'">
+                                    <input type="checkbox" v-model="form.is_single_shot" class="mt-1 h-4 w-4 text-indigo-600 focus:ring-indigo-500 rounded" />
+                                    <div class="ml-3">
+                                        <span class="font-medium text-gray-900">Single-shot</span>
+                                        <p class="text-sm text-gray-500 mt-0.5">User dials the full path in one go (e.g. *737*1*2*3#). No interaction, immediate result.</p>
+                                    </div>
+                                </label>
+                            </div>
+
                             <!-- USSD Type -->
                             <div class="border-t border-gray-200 pt-6">
                                 <InputLabel value="USSD Type" />
@@ -413,6 +425,7 @@ const form = useForm({
     description: '',
     pattern: '',
     is_shared_gateway: false,
+    is_single_shot: false,
     allocations: [{ option_value: '', target_ussd_id: null, label: '' }]
 })
 
@@ -450,6 +463,7 @@ const submit = (values) => {
     form.description = values.description
     form.pattern = values.pattern
     form.is_shared_gateway = form.is_shared_gateway
+    form.is_single_shot = form.is_single_shot
     // Only send allocations when shared gateway; otherwise send empty array
     form.allocations = form.is_shared_gateway
         ? form.allocations.filter(r => r.option_value?.trim() && r.target_ussd_id && r.label?.trim())

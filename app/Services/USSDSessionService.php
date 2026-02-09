@@ -2822,29 +2822,25 @@ private function handleNavigation(USSDSession $session, ?USSDFlowOption $option 
                 
                 $session->update(['current_flow_id' => $nextFlow->id]);
                 $sessionData['next_flow_after_input'] = null;
-                
-                // If we're retrying after an API error, preserve the error message
-                $lastApiError = $sessionData['last_api_error'] ?? null;
-                $apiErrorMessage = $sessionData['api_error_message'] ?? null;
-                
+                // Clear previous input-collection state so getCurrentFlowDisplay sees the new flow correctly
+                unset($sessionData['collecting_input'], $sessionData['input_type'], $sessionData['input_prompt'], $sessionData['input_action_data'], $sessionData['input_option_id']);
                 $session->update(['session_data' => $sessionData]);
                 
-                $menuText = $this->replacePlaceholders($nextFlow->menu_text, $sessionData);
+                $session->refresh();
+                $session->load('currentFlow');
                 
-                // If there's an API error message and we're in a retry scenario, prepend it
-                // Show error message if lastApiError exists (regardless of retrying_input_after_api_error flag)
-                if ($lastApiError && $apiErrorMessage) {
-                    $menuText = $apiErrorMessage . "\n\n" . $menuText;
+                // Use getCurrentFlowDisplay so it can auto-trigger input when next flow has only input options
+                // (otherwise we'd show a menu like "1. enter phone" and processInput would treat "08131219734" as invalid option)
+                $display = $this->getCurrentFlowDisplay($session);
+                
+                // If retrying after API error, prepend error message
+                $lastApiError = $sessionData['last_api_error'] ?? null;
+                $apiErrorMessage = $sessionData['api_error_message'] ?? null;
+                if ($lastApiError && $apiErrorMessage && !empty($display['message'])) {
+                    $display['message'] = $apiErrorMessage . "\n\n" . $display['message'];
                 }
                 
-                return [
-                    'success' => true,
-                    'message' => $menuText,
-                    'flow_title' => $nextFlow->title,
-                    'requires_input' => true,
-                    'current_flow' => $nextFlow,
-                    'options' => $nextFlow->options()->where('is_active', true)->orderBy('sort_order')->get(),
-                ];
+                return $display;
             }
         }
 

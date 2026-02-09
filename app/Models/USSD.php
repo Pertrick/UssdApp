@@ -22,6 +22,7 @@ class USSD extends Model
         'business_id',
         'is_active',
         'is_shared_gateway',
+        'is_single_shot',
         'environment_id',
         'gateway_provider', // 'africastalking', 'hubtel', 'twilio', etc.
         'gateway_credentials', // JSON encrypted credentials
@@ -39,6 +40,7 @@ class USSD extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_shared_gateway' => 'boolean',
+        'is_single_shot' => 'boolean',
         'monetization_enabled' => 'boolean',
         'gateway_credentials' => 'encrypted:array',
         'session_price' => 'decimal:2',

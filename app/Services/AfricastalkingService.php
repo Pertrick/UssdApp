@@ -26,10 +26,8 @@ class AfricasTalkingService
     public function processUSSDRequest(array $requestData): array
     {
         try {
-            // SECURITY: Sanitize all inputs using SanitizationService
             $sanitizationService = app(SanitizationService::class);
-            
-            $sessionId = isset($requestData['sessionId']) 
+            $sessionId = isset($requestData['sessionId'])
                 ? $sanitizationService->sanitizeInput($requestData['sessionId'], 'session_id')
                 : null;
             $serviceCode = isset($requestData['serviceCode'])
@@ -49,17 +47,17 @@ class AfricasTalkingService
                 'text' => $text
             ]);
 
-            // AfricasTalking sends: serviceCode = short code (e.g. *347*412#); text = user input
-            // When user dials *347*412*1# directly, AT sends serviceCode=*347*412#, text=1
-            $resolved = $this->resolveUssdFromRequest($serviceCode, $text);
+            $resolver = app(UssdRequestResolver::class);
+            $sharedGateway = app(SharedGatewayService::class);
+
+            $resolved = $resolver->resolve($serviceCode, $text);
             $ussd = $resolved['ussd'] ?? null;
             $isDirectDial = $resolved['direct_dial'] ?? false;
 
-            // Only clear text on first request (new session) for direct dial; store choice for stripping on subsequent requests
             $directDialChoice = null;
             $existingSession = $sessionId ? USSDSession::where('session_id', $sessionId)->first() : null;
             if ($isDirectDial && !$existingSession) {
-                $directDialChoice = $this->getFirstSegment($text);
+                $directDialChoice = $sharedGateway->getFirstSegment($text);
                 $text = '';
             }
 
@@ -74,11 +72,39 @@ class AfricasTalkingService
                 return $this->formatResponse('END', 'Invalid service code.');
             }
 
+            // Single-shot: use tenant's flag when shared gateway, otherwise gateway's own flag
+            // Gateway stays shared (not single-shot); only the target tenant (e.g. Buy Airtime) is single-shot
+            $shouldSingleShot = false;
+            if ($text !== '') {
+                if ($ussd->is_shared_gateway && $ussd->sharedCodeAllocations->isNotEmpty()) {
+                    $firstChoice = $sharedGateway->getFirstSegment($text);
+                    $allocation = $ussd->sharedCodeAllocations->firstWhere('option_value', $firstChoice);
+                    $targetUssd = $allocation?->targetUssd;
+                    if ($targetUssd && $targetUssd->is_single_shot) {
+                        $shouldSingleShot = true;
+                    }
+                } elseif ($ussd->is_single_shot) {
+                    $shouldSingleShot = true;
+                }
+            }
+            if ($shouldSingleShot) {
+                Log::info('Single-shot path', [
+                    'ussd_id' => $ussd->id,
+                    'pattern' => $ussd->pattern,
+                    'text' => $text,
+                    'is_shared_gateway' => $ussd->is_shared_gateway,
+                ]);
+                $singleShot = app(SingleShotService::class);
+                $display = $singleShot->process($ussd, $text, $sessionId ?? '', $phoneNumber ?? '');
+                if ($display) {
+                    return $this->formatAfricasTalkingResponse($display);
+                }
+                return $this->formatResponse('END', 'Invalid service code.');
+            }
+
             $isGateway = $ussd->is_shared_gateway && $ussd->sharedCodeAllocations->isNotEmpty();
             $isFirstRequest = empty($text);
-            
 
-            // Get or create session (skip billing for gateway – we bill when tenant is chosen)
             $session = $this->getOrCreateSession(
                 $ussd,
                 $sessionId,
@@ -87,7 +113,6 @@ class AfricasTalkingService
                 $isGateway
             );
 
-            // Store tenant_choice for direct dial so we can strip prefix on subsequent requests
             if ($directDialChoice !== null) {
                 $sessionData = $session->session_data ?? [];
                 $sessionData['tenant_choice'] = $directDialChoice;
@@ -95,12 +120,10 @@ class AfricasTalkingService
                 $session->refresh();
             }
 
-            // Check if session is already completed/ended
             if ($session->status === 'completed') {
                 return $this->formatResponse('END', 'This session has ended. Please start a new session.');
             }
 
-            // Check if billing failed (insufficient balance, etc.)
             if ($session->billing_status === 'failed') {
                 $errorMessage = $session->error_message ?? 'Insufficient balance. Please top up your account.';
                 return $this->formatResponse('END', $errorMessage);
@@ -108,72 +131,36 @@ class AfricasTalkingService
 
             $ussdSessionService = app(USSDSessionService::class);
 
-            // ----- Shared gateway: first request → show tenant menu, do not bill -----
+            // Shared gateway: first request → show tenant menu
             if ($isGateway && $isFirstRequest) {
                 $sessionData = $session->session_data ?? [];
                 $sessionData['awaiting_tenant_choice'] = true;
                 $session->update(['session_data' => $sessionData]);
-                $menu = $this->buildGatewayMenu($ussd);
+                $menu = $sharedGateway->buildGatewayMenu($ussd);
                 return $this->formatResponse('CON', $menu);
             }
 
-            // ----- Shared gateway: route to tenant when user selects (menu or direct dial *347*412*1#) -----
+            // Shared gateway: route to tenant when user selects
             $sessionData = $session->session_data ?? [];
-            $hasTenantChoice = !empty($sessionData['tenant_choice']);
-            $needsTenantRouting = $isGateway && (
-                !empty($sessionData['awaiting_tenant_choice']) ||
-                (!$hasTenantChoice && !empty($text))
-            );
-            if ($needsTenantRouting) {
-                $choice = $this->getFirstSegment($text);
-                $allocation = $ussd->sharedCodeAllocations->firstWhere('option_value', $choice);
-                if (!$allocation) {
-                    $menu = $this->buildGatewayMenu($ussd);
-                    return $this->formatResponse('CON', "Invalid option.\n\n" . $menu);
-                }
-                $targetUssd = $allocation->targetUssd;
-                $rootFlow = $targetUssd->rootFlow();
-                if (!$rootFlow) {
-                    return $this->formatResponse('END', 'Service not configured. Please try again later.');
-                }
-                $newSessionData = ['tenant_choice' => $choice];
-                $session->update([
-                    'ussd_id' => $targetUssd->id,
-                    'current_flow_id' => $rootFlow->id,
-                    'session_data' => $newSessionData,
-                ]);
-                $session->refresh();
-                // Bill the tenant (first request to their flow)
+            if ($sharedGateway->needsTenantRouting($ussd, $sessionData, $text)) {
+                $choice = $sharedGateway->getFirstSegment($text);
                 try {
-                    $billingService = app(\App\Services\BillingService::class);
-                    $gatewayCostService = app(\App\Services\GatewayCostService::class);
-                    $networkProvider = $gatewayCostService->detectNetworkProvider($phoneNumber);
-                    $gatewayCostService->recordGatewayCost($session, $networkProvider);
-                    $billingService->billSession($session);
+                    $display = $sharedGateway->routeToTenantAndGetDisplay($ussd, $session, $choice, $phoneNumber ?? '');
                 } catch (\Throwable $e) {
-                    Log::error('Failed to bill USSD session after tenant choice', [
-                        'session_id' => $session->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                    $session->update(['status' => 'error']);
                     return $this->formatResponse('END', 'Unable to start service. Please try again.');
                 }
-                $display = $ussdSessionService->getCurrentFlowDisplay($session);
-                return $this->formatAfricasTalkingResponse($display);
+                if ($display) {
+                    return $this->formatAfricasTalkingResponse($display);
+                }
+                $menu = $sharedGateway->buildGatewayMenu($ussd);
+                return $this->formatResponse('CON', "Invalid option.\n\n" . $menu);
             }
 
-            // ----- Strip tenant prefix when session was routed from gateway or direct dial -----
+            // Strip tenant prefix
             $session->refresh();
             $sessionData = $session->session_data ?? [];
             $tenantChoice = $sessionData['tenant_choice'] ?? null;
-            if ($tenantChoice !== null && $tenantChoice !== '') {
-                $prefix = $tenantChoice . '*';
-                if (str_starts_with($text, $prefix)) {
-                    $text = substr($text, strlen($prefix));
-                } elseif ($text === $tenantChoice) {
-                    $text = '';
-                }
-            }
+            $text = $sharedGateway->stripTenantPrefix($text, $tenantChoice);
 
             // Process the input (normal flow or tenant flow with stripped text)
             $response = $ussdSessionService->processInput($session, $text);
@@ -241,45 +228,6 @@ class AfricasTalkingService
     }
 
     /**
-     * Resolve USSD from AfricasTalking request.
-     * AfricasTalking sends: serviceCode = short code (e.g. *347*412#); text = user input.
-     * When user dials *347*412*1# directly, AT sends serviceCode=*347*412#, text=1.
-     *
-     * Returns ['ussd' => USSD|null, 'direct_dial' => bool]. When direct_dial=true,
-     * the text was used to resolve; caller should show root without passing text.
-     */
-    protected function resolveUssdFromRequest(?string $serviceCode, string $text): array
-    {
-        if (!$serviceCode) {
-            return ['ussd' => null, 'direct_dial' => false];
-        }
-
-        $query = fn () => USSD::with('sharedCodeAllocations')
-            ->where('is_active', true)
-            ->whereHas('environment', fn ($q) => $q->where('name', EnvironmentType::PRODUCTION->value));
-
-        // 1) Exact match (gateway or normal USSD)
-        $ussd = $query()->where('pattern', $serviceCode)->first();
-        if ($ussd) {
-            return ['ussd' => $ussd, 'direct_dial' => false];
-        }
-
-        // 2) Direct dial: user dialed *347*412*1# → AT sends serviceCode=*347*412#, text=1
-        if ($text !== '') {
-            $choice = $this->getFirstSegment($text);
-            if ($choice !== '') {
-                $directPattern = rtrim($serviceCode, '#') . '*' . $choice . '#';
-                $ussd = $query()->where('pattern', $directPattern)->first();
-                if ($ussd) {
-                    return ['ussd' => $ussd, 'direct_dial' => true];
-                }
-            }
-        }
-
-        return ['ussd' => null, 'direct_dial' => false];
-    }
-
-    /**
      * Get or create USSD session.
      * Bills on first request (when session is created), unless $skipBillingForGatewayFirst is true
      * (shared gateway: we bill when the user chooses a tenant).
@@ -336,31 +284,6 @@ class AfricasTalkingService
         }
 
         return $session;
-    }
-
-    /**
-     * Build CON menu for shared gateway (e.g. "1. MCD\n2. PlanetF").
-     */
-    protected function buildGatewayMenu(USSD $gatewayUssd): string
-    {
-        $lines = ['Welcome'];
-        foreach ($gatewayUssd->sharedCodeAllocations as $a) {
-            $lines[] = $a->option_value . '. ' . $a->label;
-        }
-        return implode("\n", $lines);
-    }
-
-    /**
-     * First segment of USSD text (e.g. "1*2*3" → "1").
-     */
-    protected function getFirstSegment(string $text): string
-    {
-        $text = trim($text);
-        if ($text === '') {
-            return '';
-        }
-        $parts = explode('*', $text);
-        return trim($parts[0]);
     }
 
     /**

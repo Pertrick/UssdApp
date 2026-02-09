@@ -210,6 +210,7 @@ class USSDController extends Controller
             'environment_id' => $testingEnvironment->id,
             'is_active' => true,
             'is_shared_gateway' => $validated['is_shared_gateway'] ?? false,
+            'is_single_shot' => $validated['is_single_shot'] ?? false,
         ]);
 
         // Create default root flow for USSD
@@ -293,6 +294,7 @@ class USSDController extends Controller
             'pattern' => $validated['pattern'],
             'business_id' => $validated['business_id'],
             'is_shared_gateway' => $validated['is_shared_gateway'] ?? false,
+            'is_single_shot' => $validated['is_single_shot'] ?? false,
         ]);
 
         // Sync shared-code allocations (only when this USSD is a gateway)
